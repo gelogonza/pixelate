@@ -80,7 +80,7 @@ function deepClone<T>(value: T): T {
 }
 
 export function captureVisualState(state: AppState): VisualState {
-  const { timeline: _timeline, ...visual } = state;
+  const { timeline: _timeline, layers: _layers, ...visual } = state;
   return deepClone(visual);
 }
 

@@ -192,8 +192,16 @@ export interface TimelineSettings {
   keyframes: TimelineKeyframe[];
 }
 
+export interface RenderLayer {
+  id: string;
+  opacity: number;
+  blendMode: string; // GlobalCompositeOperation value
+  visual: VisualState;
+}
+
 export interface AppState extends VisualState {
   timeline: TimelineSettings;
+  layers: RenderLayer[];
 }
 
 /** Both image and video elements draw the same way via ctx.drawImage. */

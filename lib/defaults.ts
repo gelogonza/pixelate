@@ -126,4 +126,5 @@ export const defaultState: AppState = {
     selectedId: null,
     keyframes: [],
   },
+  layers: [],
 };
