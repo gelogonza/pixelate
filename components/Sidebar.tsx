@@ -106,6 +106,7 @@ export function Sidebar({
     "sand",
     "magnetic_field",
     "noise_displacement",
+    "night_camera",
   ]).has(state.mode);
   const showThreshold = new Set<RenderMode>([
     "dithering",
@@ -137,6 +138,7 @@ export function Sidebar({
     emoji: "Emoji size",
     binary: "Glyph size",
     matrix_rain: "Glyph size",
+    night_camera: "Scanline gap",
   };
   const effectIntensityLabel: Partial<Record<RenderMode, string>> = {
     flow_field: "Flow strength",
@@ -150,6 +152,7 @@ export function Sidebar({
     topographic: "Contour detail",
     text_fill: "Fill strength",
     word_cloud: "Fill density",
+    night_camera: "Signal boost",
   };
 
   const addKeyframe = () => {

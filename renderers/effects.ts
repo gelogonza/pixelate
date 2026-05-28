@@ -685,6 +685,31 @@ export function renderEffect(rc: RenderContext) {
     renderThermalHeatwave(trc, img, modeAnimated);
     return;
   }
+  if (modeName === "night_camera") {
+    const scanStep = Math.max(2, Math.floor(e.scale * 0.3));
+    const iw = img.width;
+    const ih = img.height;
+    const cx = iw * 0.5;
+    const cy = ih * 0.5;
+    const maxD = Math.hypot(cx, cy);
+    paintImageData(trc, img, (r, g, b, _a, x, y) => {
+      const v = lum(r, g, b);
+      const amp = Math.min(1, v * (0.5 + e.intensity * 1.5));
+      const out: RGB =
+        amp < 0.45
+          ? mix([0, 0, 0], [8, 140, 18], amp / 0.45)
+          : mix([8, 140, 18], [90, 255, 60], (amp - 0.45) / 0.55);
+      const scan = scanStep > 0 && y % scanStep === 0 ? 0.72 : 1.0;
+      const vignette = 1 - (Math.hypot(x - cx, y - cy) / maxD) ** 2 * 0.55;
+      const noise = (hash(x * 19 + y * 37 + e.seed + Math.floor(trc.time * 8)) - 0.5) * 22;
+      return [
+        clamp(out[0] * scan * vignette + noise * 0.15),
+        clamp(out[1] * scan * vignette + noise),
+        clamp(out[2] * scan * vignette + noise * 0.25),
+      ];
+    });
+    return;
+  }
   if (modeName === "infrared" || modeName === "solarize" || modeName === "duotone" || modeName === "risograph") {
     const shadow = hexToRgb(e.shadowColor);
     const high = hexToRgb(e.highlightColor);

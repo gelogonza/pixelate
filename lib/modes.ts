@@ -24,6 +24,7 @@ export const MODE_OPTIONS: ModeOption[] = [
   { value: "risograph", label: "Risograph", group: "Pixel / Image" },
   { value: "thermal", label: "Thermal camera", group: "Pixel / Image" },
   { value: "infrared", label: "Infrared", group: "Pixel / Image" },
+  { value: "night_camera", label: "Night camera", group: "Pixel / Image" },
   { value: "solarize", label: "Solarize", group: "Pixel / Image" },
   { value: "duotone", label: "Duotone", group: "Pixel / Image" },
   { value: "halftone_cmyk", label: "Halftone CMYK", group: "Pixel / Image" },

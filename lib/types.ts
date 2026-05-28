@@ -36,7 +36,8 @@ export type RenderMode =
   | "liquid"
   | "sand"
   | "magnetic_field"
-  | "noise_displacement";
+  | "noise_displacement"
+  | "night_camera";
 
 export type AsciiAlgorithm =
   | "brightness"   // perceptual luminance (0.299R + 0.587G + 0.114B)
