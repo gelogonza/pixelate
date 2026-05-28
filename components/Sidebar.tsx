@@ -6,6 +6,7 @@ import {
   AsciiCharsetPreset,
   ColorOptions,
   DitherStyle,
+  RenderLayer,
   RenderMode,
   RenderResolution,
 } from "@/lib/types";
@@ -32,6 +33,7 @@ interface Props {
   recordingVideo: boolean;
   recordingProgress: number;
   canvasSize: { width: number; height: number; dpr: number } | null;
+  mediaDuration?: number | null;
 }
 
 export function Sidebar({
@@ -47,6 +49,7 @@ export function Sidebar({
   recordingVideo,
   recordingProgress,
   canvasSize,
+  mediaDuration,
 }: Props) {
   const set = <K extends keyof AppState>(key: K, value: AppState[K]) =>
     setState({ ...state, [key]: value });
@@ -78,6 +81,38 @@ export function Sidebar({
     M extends "ascii" | "pixels" | "dots" | "mosaic" | "blurred" | "black" | "transparent" | "effect"
   >(mode: M, color: ColorOptions) => {
     setState({ ...state, [mode]: { ...state[mode], color } });
+  };
+
+  const BLEND_MODES = [
+    { value: "screen", label: "Screen" },
+    { value: "multiply", label: "Multiply" },
+    { value: "overlay", label: "Overlay" },
+    { value: "source-over", label: "Normal" },
+    { value: "lighten", label: "Lighten" },
+    { value: "darken", label: "Darken" },
+    { value: "difference", label: "Difference" },
+    { value: "color-dodge", label: "Color dodge" },
+  ];
+
+  const addLayer = () => {
+    const layer: RenderLayer = {
+      id: Math.random().toString(36).slice(2, 10),
+      opacity: 0.85,
+      blendMode: "screen",
+      visual: captureVisualState(state),
+    };
+    setState({ ...state, layers: [...(state.layers ?? []), layer] });
+  };
+
+  const removeLayer = (id: string) => {
+    setState({ ...state, layers: state.layers.filter(l => l.id !== id) });
+  };
+
+  const updateLayer = (id: string, patch: Partial<Pick<RenderLayer, "opacity" | "blendMode">>) => {
+    setState({
+      ...state,
+      layers: state.layers.map(l => l.id === id ? { ...l, ...patch } : l),
+    });
   };
 
   const isEffectMode = EFFECT_MODES.has(state.mode);
@@ -244,6 +279,50 @@ export function Sidebar({
             }))}
             onChange={(m) => set("mode", m)}
           />
+        </Section>
+
+        <Section title="Layers">
+          <button
+            type="button"
+            onClick={addLayer}
+            className="w-full text-xs py-2 rounded border border-white/10 hover:border-white/30 hover:bg-white/5 transition-colors"
+          >
+            + Add current mode as layer
+          </button>
+          {(state.layers ?? []).length > 0 && (
+            <div className="space-y-3 mt-2">
+              {(state.layers ?? []).map((layer, i) => (
+                <div key={layer.id} className="rounded border border-white/10 p-2 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-white/60 uppercase tracking-wider">
+                      {modeLabel(layer.visual.mode)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeLayer(layer.id)}
+                      className="text-[10px] text-white/30 hover:text-white/70 transition-colors px-1"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  <SliderInput
+                    label="Opacity"
+                    value={layer.opacity}
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    onChange={(v) => updateLayer(layer.id, { opacity: v })}
+                  />
+                  <Select
+                    label="Blend mode"
+                    value={layer.blendMode}
+                    options={BLEND_MODES}
+                    onChange={(v) => updateLayer(layer.id, { blendMode: v })}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
         </Section>
 
         <Section title="Timeline">
@@ -901,7 +980,7 @@ export function Sidebar({
             label="Video length"
             value={state.videoDurationSec}
             min={1}
-            max={10}
+            max={mediaDuration ?? 10}
             step={1}
             onChange={(v) => set("videoDurationSec", v)}
             unit="s"
