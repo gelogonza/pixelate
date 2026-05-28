@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, useState } from "react";
 import {
   AppState,
   AsciiAlgorithm,
@@ -51,6 +52,52 @@ export function Sidebar({
   canvasSize,
   mediaDuration,
 }: Props) {
+  // Drag-to-reorder state for layers
+  const dragStartId = useRef<string | null>(null);
+  const dragOverIdRef = useRef<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const layerCardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  const handleLayerDragStart = (e: React.PointerEvent<HTMLButtonElement>, id: string) => {
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragStartId.current = id;
+    dragOverIdRef.current = id;
+    setDragOverId(id);
+  };
+
+  const handleLayerDragMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (!dragStartId.current) return;
+    let best: string | null = null;
+    let bestDist = Infinity;
+    for (const [id, el] of layerCardRefs.current) {
+      const rect = el.getBoundingClientRect();
+      const dist = Math.abs(e.clientY - (rect.top + rect.height / 2));
+      if (dist < bestDist) { bestDist = dist; best = id; }
+    }
+    if (best && best !== dragOverIdRef.current) {
+      dragOverIdRef.current = best;
+      setDragOverId(best);
+    }
+  };
+
+  const handleLayerDragEnd = () => {
+    const fromId = dragStartId.current;
+    const toId = dragOverIdRef.current;
+    dragStartId.current = null;
+    dragOverIdRef.current = null;
+    setDragOverId(null);
+    if (!fromId || !toId || fromId === toId) return;
+    const layers = state.layers ?? [];
+    const fromIdx = layers.findIndex(l => l.id === fromId);
+    const toIdx = layers.findIndex(l => l.id === toId);
+    if (fromIdx === -1 || toIdx === -1) return;
+    const next = layers.slice();
+    const [moved] = next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, moved);
+    setState({ ...state, layers: next });
+  };
+
   const set = <K extends keyof AppState>(key: K, value: AppState[K]) =>
     setState({ ...state, [key]: value });
 
@@ -290,37 +337,64 @@ export function Sidebar({
             + Add current mode as layer
           </button>
           {(state.layers ?? []).length > 0 && (
-            <div className="space-y-3 mt-2">
-              {(state.layers ?? []).map((layer, i) => (
-                <div key={layer.id} className="rounded border border-white/10 p-2 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] text-white/60 uppercase tracking-wider">
-                      {modeLabel(layer.visual.mode)}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => removeLayer(layer.id)}
-                      className="text-[10px] text-white/30 hover:text-white/70 transition-colors px-1"
-                    >
-                      Remove
-                    </button>
+            <div className="space-y-2 mt-2">
+              {(state.layers ?? []).map((layer) => {
+                const isDragging = dragStartId.current === layer.id;
+                const isOver = dragOverId === layer.id && !isDragging;
+                return (
+                  <div
+                    key={layer.id}
+                    ref={(el) => {
+                      if (el) layerCardRefs.current.set(layer.id, el);
+                      else layerCardRefs.current.delete(layer.id);
+                    }}
+                    className={`rounded border p-2 space-y-2 transition-all duration-100 ${
+                      isDragging ? "opacity-40 border-white/5" :
+                      isOver ? "border-white/50 bg-white/5" :
+                      "border-white/10"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onPointerDown={(e) => handleLayerDragStart(e, layer.id)}
+                        onPointerMove={handleLayerDragMove}
+                        onPointerUp={handleLayerDragEnd}
+                        onPointerCancel={handleLayerDragEnd}
+                        className="text-white/25 hover:text-white/60 cursor-grab active:cursor-grabbing select-none px-0.5 flex-shrink-0"
+                        style={{ touchAction: "none" }}
+                        aria-label="Drag to reorder"
+                      >
+                        ⠿
+                      </button>
+                      <span className="flex-1 text-[11px] text-white/60 uppercase tracking-wider truncate">
+                        {modeLabel(layer.visual.mode)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removeLayer(layer.id)}
+                        className="text-[10px] text-white/30 hover:text-white/70 transition-colors px-1 flex-shrink-0"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <SliderInput
+                      label="Opacity"
+                      value={layer.opacity}
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      onChange={(v) => updateLayer(layer.id, { opacity: v })}
+                    />
+                    <Select
+                      label="Blend mode"
+                      value={layer.blendMode}
+                      options={BLEND_MODES}
+                      onChange={(v) => updateLayer(layer.id, { blendMode: v })}
+                    />
                   </div>
-                  <SliderInput
-                    label="Opacity"
-                    value={layer.opacity}
-                    min={0}
-                    max={1}
-                    step={0.01}
-                    onChange={(v) => updateLayer(layer.id, { opacity: v })}
-                  />
-                  <Select
-                    label="Blend mode"
-                    value={layer.blendMode}
-                    options={BLEND_MODES}
-                    onChange={(v) => updateLayer(layer.id, { blendMode: v })}
-                  />
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </Section>
