@@ -203,7 +203,6 @@ export function Sidebar({
   ]).has(state.mode);
   const effectScaleLabel: Partial<Record<RenderMode, string>> = {
     flow_field: "Line spacing",
-    liquid: "Fluid grid",
     sand: "Grain size",
     magnetic_field: "Field spacing",
     reaction_diffusion: "Pattern scale",
@@ -686,14 +685,16 @@ export function Sidebar({
         {isEffectMode && (
           <>
             <Section title={modeLabel(state.mode)}>
-              <SliderInput
-                label={effectScaleLabel[state.mode] ?? "Scale"}
-                value={state.effect.scale}
-                min={4}
-                max={80}
-                onChange={(v) => setEffect({ scale: v })}
-                unit="px"
-              />
+              {state.mode !== "liquid" && (
+                <SliderInput
+                  label={effectScaleLabel[state.mode] ?? "Scale"}
+                  value={state.effect.scale}
+                  min={4}
+                  max={80}
+                  onChange={(v) => setEffect({ scale: v })}
+                  unit="px"
+                />
+              )}
               <SliderInput
                 label={effectIntensityLabel[state.mode] ?? "Intensity"}
                 value={state.effect.intensity}

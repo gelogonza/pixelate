@@ -611,22 +611,41 @@ function renderLiquid(rc: RenderContext, animateMode: boolean) {
   const cellH = height / rows;
   const disp = (0.7 + intensity * 3.6) * Math.min(cellW, cellH);
 
+  // Per-pixel displacement: sample the velocity field with bilinear interpolation
+  // so there are no visible tile boundaries.
+  const srcCtx = src.getContext("2d", { willReadFrequently: true })!;
+  const srcData = srcCtx.getImageData(0, 0, src.width, src.height);
+  const iw = src.width;
+  const ih = src.height;
+  const outData = new ImageData(iw, ih);
+
+  for (let py = 0; py < ih; py++) {
+    for (let px = 0; px < iw; px++) {
+      const gx = (px / iw) * cols;
+      const gy = (py / ih) * rows;
+      const ux = sampleField(u, gx, gy, cols, rows);
+      const vy = sampleField(v, gx, gy, cols, rows);
+      const sx = clamp(Math.round(px - ux * disp), 0, iw - 1);
+      const sy = clamp(Math.round(py - vy * disp), 0, ih - 1);
+      const si = (sy * iw + sx) * 4;
+      const oi = (py * iw + px) * 4;
+      outData.data[oi]     = srcData.data[si];
+      outData.data[oi + 1] = srcData.data[si + 1];
+      outData.data[oi + 2] = srcData.data[si + 2];
+      outData.data[oi + 3] = srcData.data[si + 3];
+    }
+  }
+
+  const outCanvas = document.createElement("canvas");
+  outCanvas.width = iw;
+  outCanvas.height = ih;
+  outCanvas.getContext("2d")!.putImageData(outData, 0, 0);
+
   ctx.save();
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   ctx.filter = `blur(${intensity * 0.45}px) saturate(${1.08 + intensity * 0.42}) contrast(${1.03 + intensity * 0.14})`;
-  for (let y = 0; y < rows; y++) {
-    for (let x = 0; x < cols; x++) {
-      const i = fIdx(x, y, cols);
-      const px = x * cellW;
-      const py = y * cellH;
-      const dx = u[i] * disp;
-      const dy = v[i] * disp;
-      const sx = clamp(px - dx, 0, width - cellW);
-      const sy = clamp(py - dy, 0, height - cellH);
-      ctx.drawImage(src, sx, sy, cellW, cellH, px, py, cellW + 1, cellH + 1);
-    }
-  }
+  ctx.drawImage(outCanvas, 0, 0, width, height);
   ctx.restore();
 
   // Caustic highlights from local velocity divergence.
