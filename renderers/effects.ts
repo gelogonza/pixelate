@@ -59,6 +59,25 @@ function applyEffectColorMode(rc: RenderContext, styled: RGB): RGB {
   );
 }
 
+// Reusable offscreen canvas for blitting ImageData via drawImage so the
+// canvas transform (DPR scale) is respected. putImageData ignores transforms,
+// which causes content to appear only in the top-left on high-DPR displays.
+let _blitCanvas: HTMLCanvasElement | null = null;
+let _blitCtx: CanvasRenderingContext2D | null = null;
+
+function blitImageData(rc: RenderContext, img: ImageData) {
+  if (!_blitCanvas) {
+    _blitCanvas = document.createElement("canvas");
+    _blitCtx = _blitCanvas.getContext("2d")!;
+  }
+  if (_blitCanvas.width !== img.width || _blitCanvas.height !== img.height) {
+    _blitCanvas.width = img.width;
+    _blitCanvas.height = img.height;
+  }
+  _blitCtx!.putImageData(img, 0, 0);
+  rc.ctx.drawImage(_blitCanvas, 0, 0, rc.width, rc.height);
+}
+
 function paintImageData(rc: RenderContext, img: ImageData, fn: (r: number, g: number, b: number, a: number, x: number, y: number) => RGB) {
   const data = img.data;
   for (let y = 0; y < img.height; y++) {
@@ -73,7 +92,7 @@ function paintImageData(rc: RenderContext, img: ImageData, fn: (r: number, g: nu
       data[i + 3] = a;
     }
   }
-  rc.ctx.putImageData(img, 0, 0);
+  blitImageData(rc, img);
 }
 
 function drawBlocky(rc: RenderContext, img: ImageData, painter: (x: number, y: number, r: number, g: number, b: number, v: number, seed: number, size: number) => void) {
@@ -271,7 +290,7 @@ function renderDither(rc: RenderContext, img: ImageData) {
         );
       }
     }
-    rc.ctx.putImageData(img, 0, 0);
+    blitImageData(rc, img);
     return;
   }
 
@@ -309,7 +328,7 @@ function renderDither(rc: RenderContext, img: ImageData) {
       }
     }
   }
-  rc.ctx.putImageData(img, 0, 0);
+  blitImageData(rc, img);
 }
 
 function renderGlyphs(rc: RenderContext, img: ImageData, mode: RenderMode) {
@@ -800,7 +819,7 @@ export function renderEffect(rc: RenderContext) {
         data[i + 2] = remapped[2];
       }
     }
-    ctx.putImageData(img, 0, 0);
+    blitImageData(trc, img);
     return;
   }
   if (modeName === "glitch") {
