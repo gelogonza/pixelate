@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 const MONO_STACK = "'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 const PLAYFAIR_STACK = "'Playfair Display', Georgia, 'Times New Roman', serif";
 const ASCII_TRAIL = ["@", "#", "%", "*", "+", ":", ".", "="];
-const GITHUB_URL = "https://github.com";
+const GITHUB_URL = "https://github.com/gelogonza/pixelate";
 
 const CAPABILITIES = [
   { title: "40+ Render Modes", description: "ASCII, dots, flow field, string art, and more", tag: "render" },
@@ -460,7 +460,7 @@ export function LandingPage({ demoVideos }: LandingProps) {
                 fontSize: "clamp(40px, 8vw, 140px)",
               }}
             >
-              <span className="block">Every image,</span>
+              <span className="block">Any image or video,</span>
               <span className="block">infinite styles.</span>
             </h1>
             <p
