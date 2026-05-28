@@ -221,7 +221,7 @@ export function Sidebar({
   };
 
   return (
-    <aside className="h-full w-[380px] shrink-0 bg-ink-900 border-l border-white/5 flex flex-col">
+    <aside className="h-[45vh] md:h-full w-full md:w-[380px] shrink-0 bg-ink-900 border-t md:border-t-0 md:border-l border-white/5 flex flex-col">
       <header className="px-4 py-3 border-b border-white/5 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-emerald-400" />
@@ -884,45 +884,45 @@ export function Sidebar({
             Replace media
           </button>
         </Section>
-      </div>
 
-      <footer className="border-t border-white/5 px-4 py-3 space-y-2">
-        <div className="flex items-center justify-between mb-1">
-          <div className="text-[10px] uppercase tracking-[0.18em] text-white/40">Export</div>
-          {canvasSize && (
-            <div className="text-[10px] text-white/30 tabular-nums font-mono">
-              <span className="text-white/50">{canvasSize.width}×{canvasSize.height}</span>
-            </div>
-          )}
+        <div className="border-t border-white/5 pt-3 pb-4 space-y-2">
+          <div className="flex items-center justify-between mb-1">
+            <div className="text-[10px] uppercase tracking-[0.18em] text-white/40">Export</div>
+            {canvasSize && (
+              <div className="text-[10px] text-white/30 tabular-nums font-mono">
+                <span className="text-white/50">{canvasSize.width}×{canvasSize.height}</span>
+              </div>
+            )}
+          </div>
+          <SliderInput
+            label="Video length"
+            value={state.videoDurationSec}
+            min={1}
+            max={10}
+            step={1}
+            onChange={(v) => set("videoDurationSec", v)}
+            unit="s"
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <ExportButton onClick={onExportPNG} disabled={!hasImage}>PNG</ExportButton>
+            <ExportButton onClick={onExportSVG} disabled={!hasImage}>SVG</ExportButton>
+            <ExportButton onClick={onExportReact} disabled={!hasImage}>React</ExportButton>
+            <ExportButton
+              onClick={onExportVideo}
+              disabled={!hasImage || recordingVideo}
+              active={recordingVideo}
+            >
+              {recordingVideo ? `Recording ${Math.round(recordingProgress * 100)}%` : "Video"}
+            </ExportButton>
+            <ExportButton onClick={onExportFavicon} disabled={!hasImage}>
+              Favicon
+            </ExportButton>
+          </div>
+          <p className="text-[10px] text-white/30 leading-relaxed pt-1">
+            PNG &amp; Video render at canvas size · SVG &amp; React are vector · Favicon is .ico with 16/32/48/64/128/256.
+          </p>
         </div>
-        <SliderInput
-          label="Video length"
-          value={state.videoDurationSec}
-          min={1}
-          max={10}
-          step={1}
-          onChange={(v) => set("videoDurationSec", v)}
-          unit="s"
-        />
-        <div className="grid grid-cols-2 gap-2">
-          <ExportButton onClick={onExportPNG} disabled={!hasImage}>PNG</ExportButton>
-          <ExportButton onClick={onExportSVG} disabled={!hasImage}>SVG</ExportButton>
-          <ExportButton onClick={onExportReact} disabled={!hasImage}>React</ExportButton>
-          <ExportButton
-            onClick={onExportVideo}
-            disabled={!hasImage || recordingVideo}
-            active={recordingVideo}
-          >
-            {recordingVideo ? `Recording ${Math.round(recordingProgress * 100)}%` : "Video"}
-          </ExportButton>
-          <ExportButton onClick={onExportFavicon} disabled={!hasImage}>
-            Favicon
-          </ExportButton>
-        </div>
-        <p className="text-[10px] text-white/30 leading-relaxed pt-1">
-          PNG &amp; Video render at canvas size · SVG &amp; React are vector · Favicon is .ico with 16/32/48/64/128/256.
-        </p>
-      </footer>
+      </div>
     </aside>
   );
 }

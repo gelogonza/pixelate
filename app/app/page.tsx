@@ -208,8 +208,8 @@ export default function PixelateAppPage() {
   }, [handlePNG, media]);
 
   return (
-    <div className="h-screen w-screen flex bg-ink-950 overflow-hidden font-mono text-white">
-      <main className="relative flex-1 min-w-0">
+    <div className="h-screen w-screen flex flex-col md:flex-row bg-ink-950 overflow-hidden font-mono text-white">
+      <main className="relative flex-1 min-w-0 min-h-0">
         {media ? (
           <Canvas
             ref={canvasRef}
