@@ -483,6 +483,11 @@ export function LandingPage({ demoVideos }: LandingProps) {
                 </video>
               </div>
             ) : null}
+            <div className="mt-4 flex justify-center md:justify-end">
+              <Link href="/app" className="ed-cta-btn">
+                Launch App →
+              </Link>
+            </div>
           </div>
         </div>
       </section>
