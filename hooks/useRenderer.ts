@@ -547,12 +547,23 @@ export function useRenderer(
 
     const cctx = copy.getContext("2d", { willReadFrequently: true })!;
     cctx.setTransform(1, 0, 0, 1, 0, 0);
-    cctx.filter = "none";
     cctx.globalAlpha = 1;
     cctx.globalCompositeOperation = "source-over";
     cctx.clearRect(0, 0, copy.width, copy.height);
-    cctx.drawImage(canvas, 0, 0);
 
+    // Bake brightness / saturation / hue into the offscreen copy so the CSS
+    // filter is applied in a plain drawImage call (most reliable path across
+    // browsers). Applying ctx.filter on the main canvas while using a
+    // non-source-over composite is unreliable — silently ignored on iOS Safari
+    // < 18 — so we never set ctx.filter on the main context.
+    const hasColorFilter = out.brightness !== 1 || out.saturation !== 1 || out.hue !== 0;
+    cctx.filter = hasColorFilter
+      ? `brightness(${out.brightness}) saturate(${out.saturation}) hue-rotate(${out.hue}deg)`
+      : "none";
+    cctx.drawImage(canvas, 0, 0);
+    cctx.filter = "none";
+
+    // Luminance pass on the already color-filtered copy.
     if (out.luminance !== 1) {
       const img = cctx.getImageData(0, 0, copy.width, copy.height);
       const data = img.data;
@@ -571,11 +582,14 @@ export function useRenderer(
       cctx.putImageData(img, 0, 0);
     }
 
+    // Blit the fully-processed copy back using only globalAlpha for opacity.
+    // No filter on the main ctx, no "copy" composite — plain source-over after
+    // clearing is equivalent and works everywhere.
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.filter = `brightness(${out.brightness}) saturate(${out.saturation}) hue-rotate(${out.hue}deg)`;
+    ctx.filter = "none";
     ctx.globalAlpha = Math.max(0, Math.min(1, out.opacity));
-    ctx.globalCompositeOperation = "copy";
+    ctx.globalCompositeOperation = "source-over";
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(copy, 0, 0);
     ctx.restore();
