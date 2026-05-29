@@ -47,7 +47,7 @@ function BeforeAfter() {
               className="absolute inset-0 overflow-hidden"
               style={{ clipPath: `inset(0 0 0 ${split}%)` }}
             >
-              <video autoPlay muted loop playsInline preload="metadata" className="block w-full aspect-video object-cover">
+              <video autoPlay muted loop playsInline preload="metadata" className="block w-full aspect-video object-cover pointer-events-none">
                 <source src="/demos/pixelate(11).webm" type="video/webm" />
               </video>
             </div>
@@ -369,6 +369,18 @@ export function LandingPage({ demoVideos }: LandingProps) {
     return () => { ro.disconnect(); window.removeEventListener("resize", sync); };
   }, []);
 
+  useEffect(() => {
+    const playAll = () => {
+      document.querySelectorAll<HTMLVideoElement>("video[autoplay]").forEach((v) => {
+        if (v.paused) v.play().catch(() => {});
+      });
+    };
+    playAll();
+    // First touch unlocks autoplay on browsers that blocked it before a user gesture
+    window.addEventListener("touchstart", playAll, { once: true, passive: true });
+    return () => window.removeEventListener("touchstart", playAll);
+  }, []);
+
   const heroVideo =
     demoVideos.find((v) => v.includes("pixelate(8).webm") || v.includes("pixelate_8_.webm")) ??
     demoVideos[0] ??
@@ -478,7 +490,7 @@ export function LandingPage({ demoVideos }: LandingProps) {
           >
             {heroVideo ? (
               <div className="ed-hero-bleed">
-                <video autoPlay muted loop playsInline preload="metadata" className="h-full w-full object-cover">
+                <video autoPlay muted loop playsInline preload="metadata" className="h-full w-full object-cover pointer-events-none">
                   <source src={heroVideo} type="video/webm" />
                 </video>
               </div>
