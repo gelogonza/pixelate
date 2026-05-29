@@ -1,5 +1,4 @@
 "use client";
-import { useRef } from "react";
 
 interface Props {
   label: string;
@@ -8,28 +7,20 @@ interface Props {
 }
 
 export function ColorInput({ label, value, onChange }: Props) {
-  const pickerRef = useRef<HTMLInputElement>(null);
-
   return (
     <div className="space-y-1">
       <div className="text-[11px] uppercase tracking-wider text-white/50">{label}</div>
       <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => pickerRef.current?.click()}
-          className="relative w-8 h-8 rounded border border-white/10 overflow-hidden focus:outline-none focus:border-white/40"
-          aria-label={`${label} color picker`}
-          title={`Pick ${label.toLowerCase()} color`}
-        >
+        <div className="relative w-8 h-8 flex-shrink-0 rounded border border-white/10 overflow-hidden">
           <div className="absolute inset-0" style={{ backgroundColor: value }} />
           <input
-            ref={pickerRef}
             type="color"
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            className="absolute opacity-0 pointer-events-none w-0 h-0"
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            aria-label={`${label} color picker`}
           />
-        </button>
+        </div>
         <input
           type="text"
           value={value}

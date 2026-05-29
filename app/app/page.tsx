@@ -6,7 +6,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { UploadZone } from "@/components/UploadZone";
 import { ExportModal } from "@/components/ExportModal";
 import { defaultState } from "@/lib/defaults";
-import { AppState, MediaSource } from "@/lib/types";
+import { AppState, MediaSource, isVideo } from "@/lib/types";
 import { disposeMedia, loadMedia } from "@/lib/imageData";
 import { captureVisualState, evaluateKeyframedVisualState, withVisualState } from "@/lib/timeline";
 import {
@@ -70,6 +70,18 @@ export default function PixelateAppPage() {
     return withVisualState(state, visual);
   }, [state]);
 
+  const mediaDuration = useMemo(() => {
+    if (!media || !isVideo(media)) return null;
+    const d = media.duration;
+    return isFinite(d) && d > 0 ? Math.ceil(d) : null;
+  }, [media]);
+
+  useEffect(() => {
+    if (media && isVideo(media) && isFinite(media.duration) && media.duration > 0) {
+      setState(prev => ({ ...prev, videoDurationSec: Math.ceil(media.duration) }));
+    }
+  }, [media]);
+
   const handlePNG = useCallback(async () => {
     const canvas = canvasRef.current?.canvas;
     if (!canvas) return;
@@ -110,9 +122,11 @@ export default function PixelateAppPage() {
     if (!canvas) return;
     const s = stateRef.current;
     const timelineDriven = s.timeline.enabled && s.timeline.keyframes.length > 0;
+    const mediaEl = mediaRef.current;
+    const videoDuration = mediaEl && isVideo(mediaEl) && isFinite(mediaEl.duration) ? mediaEl.duration : Infinity;
     const durationSec = timelineDriven
-      ? Math.max(0.1, Math.min(10, s.timeline.duration))
-      : Math.max(1, Math.min(10, Math.round(s.videoDurationSec)));
+      ? Math.max(0.1, Math.min(60, s.timeline.duration))
+      : Math.max(1, Math.min(videoDuration, Math.round(s.videoDurationSec)));
     const duration = durationSec * 1000;
 
     const restoreTimeline = s.timeline;
@@ -127,6 +141,12 @@ export default function PixelateAppPage() {
           currentTime: 0,
         },
       }));
+    }
+
+    // Reset video to start so export captures from the beginning
+    if (mediaEl && isVideo(mediaEl)) {
+      mediaEl.currentTime = 0;
+      try { await mediaEl.play(); } catch { /* ok */ }
     }
 
     setRecording(true);
@@ -208,8 +228,8 @@ export default function PixelateAppPage() {
   }, [handlePNG, media]);
 
   return (
-    <div className="h-screen w-screen flex bg-ink-950 overflow-hidden font-mono text-white">
-      <main className="relative flex-1 min-w-0">
+    <div className="h-screen w-screen flex flex-col md:flex-row bg-ink-950 overflow-hidden font-mono text-white">
+      <main className="relative flex-1 min-w-0 min-h-0">
         {media ? (
           <Canvas
             ref={canvasRef}
@@ -245,6 +265,7 @@ export default function PixelateAppPage() {
         recordingVideo={recording}
         recordingProgress={recordProgress}
         canvasSize={canvasSize}
+        mediaDuration={mediaDuration}
       />
       <ExportModal
         open={modalOpen}

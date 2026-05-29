@@ -1,11 +1,13 @@
 "use client";
 
+import { useRef, useState } from "react";
 import {
   AppState,
   AsciiAlgorithm,
   AsciiCharsetPreset,
   ColorOptions,
   DitherStyle,
+  RenderLayer,
   RenderMode,
   RenderResolution,
 } from "@/lib/types";
@@ -32,6 +34,7 @@ interface Props {
   recordingVideo: boolean;
   recordingProgress: number;
   canvasSize: { width: number; height: number; dpr: number } | null;
+  mediaDuration?: number | null;
 }
 
 export function Sidebar({
@@ -47,7 +50,54 @@ export function Sidebar({
   recordingVideo,
   recordingProgress,
   canvasSize,
+  mediaDuration,
 }: Props) {
+  // Drag-to-reorder state for layers
+  const dragStartId = useRef<string | null>(null);
+  const dragOverIdRef = useRef<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const layerCardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  const handleLayerDragStart = (e: React.PointerEvent<HTMLButtonElement>, id: string) => {
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragStartId.current = id;
+    dragOverIdRef.current = id;
+    setDragOverId(id);
+  };
+
+  const handleLayerDragMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (!dragStartId.current) return;
+    let best: string | null = null;
+    let bestDist = Infinity;
+    for (const [id, el] of layerCardRefs.current) {
+      const rect = el.getBoundingClientRect();
+      const dist = Math.abs(e.clientY - (rect.top + rect.height / 2));
+      if (dist < bestDist) { bestDist = dist; best = id; }
+    }
+    if (best && best !== dragOverIdRef.current) {
+      dragOverIdRef.current = best;
+      setDragOverId(best);
+    }
+  };
+
+  const handleLayerDragEnd = () => {
+    const fromId = dragStartId.current;
+    const toId = dragOverIdRef.current;
+    dragStartId.current = null;
+    dragOverIdRef.current = null;
+    setDragOverId(null);
+    if (!fromId || !toId || fromId === toId) return;
+    const layers = state.layers ?? [];
+    const fromIdx = layers.findIndex(l => l.id === fromId);
+    const toIdx = layers.findIndex(l => l.id === toId);
+    if (fromIdx === -1 || toIdx === -1) return;
+    const next = layers.slice();
+    const [moved] = next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, moved);
+    setState({ ...state, layers: next });
+  };
+
   const set = <K extends keyof AppState>(key: K, value: AppState[K]) =>
     setState({ ...state, [key]: value });
 
@@ -80,6 +130,38 @@ export function Sidebar({
     setState({ ...state, [mode]: { ...state[mode], color } });
   };
 
+  const BLEND_MODES = [
+    { value: "screen", label: "Screen" },
+    { value: "multiply", label: "Multiply" },
+    { value: "overlay", label: "Overlay" },
+    { value: "source-over", label: "Normal" },
+    { value: "lighten", label: "Lighten" },
+    { value: "darken", label: "Darken" },
+    { value: "difference", label: "Difference" },
+    { value: "color-dodge", label: "Color dodge" },
+  ];
+
+  const addLayer = () => {
+    const layer: RenderLayer = {
+      id: Math.random().toString(36).slice(2, 10),
+      opacity: 0.85,
+      blendMode: "screen",
+      visual: captureVisualState(state),
+    };
+    setState({ ...state, layers: [...(state.layers ?? []), layer] });
+  };
+
+  const removeLayer = (id: string) => {
+    setState({ ...state, layers: state.layers.filter(l => l.id !== id) });
+  };
+
+  const updateLayer = (id: string, patch: Partial<Pick<RenderLayer, "opacity" | "blendMode">>) => {
+    setState({
+      ...state,
+      layers: state.layers.map(l => l.id === id ? { ...l, ...patch } : l),
+    });
+  };
+
   const isEffectMode = EFFECT_MODES.has(state.mode);
   const sortedKeyframes = state.timeline.keyframes.slice().sort((a, b) => a.time - b.time);
   const selectedKeyframe = sortedKeyframes.find((k) => k.id === state.timeline.selectedId) ?? null;
@@ -106,6 +188,7 @@ export function Sidebar({
     "sand",
     "magnetic_field",
     "noise_displacement",
+    "night_camera",
   ]).has(state.mode);
   const showThreshold = new Set<RenderMode>([
     "dithering",
@@ -120,7 +203,6 @@ export function Sidebar({
   ]).has(state.mode);
   const effectScaleLabel: Partial<Record<RenderMode, string>> = {
     flow_field: "Line spacing",
-    liquid: "Fluid grid",
     sand: "Grain size",
     magnetic_field: "Field spacing",
     reaction_diffusion: "Pattern scale",
@@ -137,6 +219,7 @@ export function Sidebar({
     emoji: "Emoji size",
     binary: "Glyph size",
     matrix_rain: "Glyph size",
+    night_camera: "Scanline gap",
   };
   const effectIntensityLabel: Partial<Record<RenderMode, string>> = {
     flow_field: "Flow strength",
@@ -150,6 +233,7 @@ export function Sidebar({
     topographic: "Contour detail",
     text_fill: "Fill strength",
     word_cloud: "Fill density",
+    night_camera: "Signal boost",
   };
 
   const addKeyframe = () => {
@@ -221,7 +305,7 @@ export function Sidebar({
   };
 
   return (
-    <aside className="h-full w-[380px] shrink-0 bg-ink-900 border-l border-white/5 flex flex-col">
+    <aside className="h-[45vh] md:h-full w-full md:w-[380px] shrink-0 bg-ink-900 border-t md:border-t-0 md:border-l border-white/5 flex flex-col">
       <header className="px-4 py-3 border-b border-white/5 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-emerald-400" />
@@ -241,6 +325,77 @@ export function Sidebar({
             }))}
             onChange={(m) => set("mode", m)}
           />
+        </Section>
+
+        <Section title="Layers">
+          <button
+            type="button"
+            onClick={addLayer}
+            className="w-full text-xs py-2 rounded border border-white/10 hover:border-white/30 hover:bg-white/5 transition-colors"
+          >
+            + Add current mode as layer
+          </button>
+          {(state.layers ?? []).length > 0 && (
+            <div className="space-y-2 mt-2">
+              {(state.layers ?? []).map((layer) => {
+                const isDragging = dragStartId.current === layer.id;
+                const isOver = dragOverId === layer.id && !isDragging;
+                return (
+                  <div
+                    key={layer.id}
+                    ref={(el) => {
+                      if (el) layerCardRefs.current.set(layer.id, el);
+                      else layerCardRefs.current.delete(layer.id);
+                    }}
+                    className={`rounded border p-2 space-y-2 transition-all duration-100 ${
+                      isDragging ? "opacity-40 border-white/5" :
+                      isOver ? "border-white/50 bg-white/5" :
+                      "border-white/10"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onPointerDown={(e) => handleLayerDragStart(e, layer.id)}
+                        onPointerMove={handleLayerDragMove}
+                        onPointerUp={handleLayerDragEnd}
+                        onPointerCancel={handleLayerDragEnd}
+                        className="text-white/25 hover:text-white/60 cursor-grab active:cursor-grabbing select-none px-0.5 flex-shrink-0"
+                        style={{ touchAction: "none" }}
+                        aria-label="Drag to reorder"
+                      >
+                        ⠿
+                      </button>
+                      <span className="flex-1 text-[11px] text-white/60 uppercase tracking-wider truncate">
+                        {modeLabel(layer.visual.mode)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removeLayer(layer.id)}
+                        className="text-[10px] text-white/30 hover:text-white/70 transition-colors px-1 flex-shrink-0"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <SliderInput
+                      label="Opacity"
+                      value={layer.opacity}
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      onChange={(v) => updateLayer(layer.id, { opacity: v })}
+                    />
+                    <Select
+                      label="Blend mode"
+                      value={layer.blendMode}
+                      options={BLEND_MODES}
+                      onChange={(v) => updateLayer(layer.id, { blendMode: v })}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </Section>
 
         <Section title="Timeline">
@@ -530,14 +685,16 @@ export function Sidebar({
         {isEffectMode && (
           <>
             <Section title={modeLabel(state.mode)}>
-              <SliderInput
-                label={effectScaleLabel[state.mode] ?? "Scale"}
-                value={state.effect.scale}
-                min={4}
-                max={80}
-                onChange={(v) => setEffect({ scale: v })}
-                unit="px"
-              />
+              {state.mode !== "liquid" && (
+                <SliderInput
+                  label={effectScaleLabel[state.mode] ?? "Scale"}
+                  value={state.effect.scale}
+                  min={4}
+                  max={80}
+                  onChange={(v) => setEffect({ scale: v })}
+                  unit="px"
+                />
+              )}
               <SliderInput
                 label={effectIntensityLabel[state.mode] ?? "Intensity"}
                 value={state.effect.intensity}
@@ -884,45 +1041,45 @@ export function Sidebar({
             Replace media
           </button>
         </Section>
-      </div>
 
-      <footer className="border-t border-white/5 px-4 py-3 space-y-2">
-        <div className="flex items-center justify-between mb-1">
-          <div className="text-[10px] uppercase tracking-[0.18em] text-white/40">Export</div>
-          {canvasSize && (
-            <div className="text-[10px] text-white/30 tabular-nums font-mono">
-              <span className="text-white/50">{canvasSize.width}×{canvasSize.height}</span>
-            </div>
-          )}
+        <div className="border-t border-white/5 pt-3 pb-4 space-y-2">
+          <div className="flex items-center justify-between mb-1">
+            <div className="text-[10px] uppercase tracking-[0.18em] text-white/40">Export</div>
+            {canvasSize && (
+              <div className="text-[10px] text-white/30 tabular-nums font-mono">
+                <span className="text-white/50">{canvasSize.width}×{canvasSize.height}</span>
+              </div>
+            )}
+          </div>
+          <SliderInput
+            label="Video length"
+            value={state.videoDurationSec}
+            min={1}
+            max={mediaDuration ?? 10}
+            step={1}
+            onChange={(v) => set("videoDurationSec", v)}
+            unit="s"
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <ExportButton onClick={onExportPNG} disabled={!hasImage}>PNG</ExportButton>
+            <ExportButton onClick={onExportSVG} disabled={!hasImage}>SVG</ExportButton>
+            <ExportButton onClick={onExportReact} disabled={!hasImage}>React</ExportButton>
+            <ExportButton
+              onClick={onExportVideo}
+              disabled={!hasImage || recordingVideo}
+              active={recordingVideo}
+            >
+              {recordingVideo ? `Recording ${Math.round(recordingProgress * 100)}%` : "Video"}
+            </ExportButton>
+            <ExportButton onClick={onExportFavicon} disabled={!hasImage}>
+              Favicon
+            </ExportButton>
+          </div>
+          <p className="text-[10px] text-white/30 leading-relaxed pt-1">
+            PNG &amp; Video render at canvas size · SVG &amp; React are vector · Favicon is .ico with 16/32/48/64/128/256.
+          </p>
         </div>
-        <SliderInput
-          label="Video length"
-          value={state.videoDurationSec}
-          min={1}
-          max={10}
-          step={1}
-          onChange={(v) => set("videoDurationSec", v)}
-          unit="s"
-        />
-        <div className="grid grid-cols-2 gap-2">
-          <ExportButton onClick={onExportPNG} disabled={!hasImage}>PNG</ExportButton>
-          <ExportButton onClick={onExportSVG} disabled={!hasImage}>SVG</ExportButton>
-          <ExportButton onClick={onExportReact} disabled={!hasImage}>React</ExportButton>
-          <ExportButton
-            onClick={onExportVideo}
-            disabled={!hasImage || recordingVideo}
-            active={recordingVideo}
-          >
-            {recordingVideo ? `Recording ${Math.round(recordingProgress * 100)}%` : "Video"}
-          </ExportButton>
-          <ExportButton onClick={onExportFavicon} disabled={!hasImage}>
-            Favicon
-          </ExportButton>
-        </div>
-        <p className="text-[10px] text-white/30 leading-relaxed pt-1">
-          PNG &amp; Video render at canvas size · SVG &amp; React are vector · Favicon is .ico with 16/32/48/64/128/256.
-        </p>
-      </footer>
+      </div>
     </aside>
   );
 }

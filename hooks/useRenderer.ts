@@ -66,6 +66,7 @@ export function useRenderer(
   const warpCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const outputCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const proxyFieldRef = useRef<ProxyField | null>(null);
+  const layerCanvasMapRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
 
   const rafRef = useRef<number | null>(null);
   const lastTRef = useRef(0);
@@ -615,6 +616,75 @@ export function useRenderer(
       applyMouseWarp(ctx, canvas, scaleX, scaleY);
     }
     applyOutputAdjustments(ctx, canvas);
+
+    // Composite additional layers
+    const layers = stateRef.current.layers ?? [];
+    const canvasMap = layerCanvasMapRef.current;
+    // Clean up stale canvases
+    for (const key of Array.from(canvasMap.keys())) {
+      if (!layers.find(l => l.id === key)) canvasMap.delete(key);
+    }
+    for (const layer of layers) {
+      let offscreen = canvasMap.get(layer.id);
+      if (!offscreen) {
+        offscreen = document.createElement("canvas");
+        canvasMap.set(layer.id, offscreen);
+      }
+      if (offscreen.width !== canvas.width || offscreen.height !== canvas.height) {
+        offscreen.width = canvas.width;
+        offscreen.height = canvas.height;
+      }
+      const octx = offscreen.getContext("2d")!;
+      octx.setTransform(1, 0, 0, 1, 0, 0);
+      octx.clearRect(0, 0, offscreen.width, offscreen.height);
+      octx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
+
+      // Build cells for cell-mode layers
+      let layerCells: Cell[] = [];
+      let layerDims: GridDims = dimsRef.current;
+      const src = mediaRef.current;
+      if (CELL_MODES.has(layer.visual.mode) && src) {
+        const cellMode = layer.visual.mode as "ascii" | "pixels" | "dots" | "mosaic";
+        const params =
+          cellMode === "ascii" ? { density: layer.visual.ascii.density, charAspect: layer.visual.ascii.charAspect }
+          : cellMode === "pixels" ? { cellSize: layer.visual.pixels.cellSize }
+          : cellMode === "dots" ? { cellSize: layer.visual.dots.cellSize }
+          : { cellSize: layer.visual.mosaic.cellSize };
+        layerDims = computeGridDims(cellMode, width, height, params);
+        const withEdges =
+          cellMode === "ascii" &&
+          (layer.visual.ascii.algorithm === "edge" || layer.visual.ascii.algorithm === "edge_directional");
+        layerCells = buildCells(src, layerDims, withEdges);
+      }
+
+      // Force transparent background so blend modes work correctly
+      const layerState: AppState = {
+        ...stateRef.current,
+        ...layer.visual,
+        backgroundEnabled: false,
+        timeline: stateRef.current.timeline,
+        layers: [],
+      };
+
+      render({
+        ctx: octx,
+        cells: layerCells,
+        width,
+        height,
+        dims: layerDims,
+        state: layerState,
+        time,
+        source: src,
+      });
+
+      // Composite onto main canvas
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalAlpha = Math.max(0, Math.min(1, layer.opacity));
+      ctx.globalCompositeOperation = layer.blendMode as GlobalCompositeOperation;
+      ctx.drawImage(offscreen, 0, 0);
+      ctx.restore();
+    }
   }, [applyMouseWarp, applyOutputAdjustments, applyProxyWarp, canvasRef]);
 
   const loop = useCallback((t: number) => {

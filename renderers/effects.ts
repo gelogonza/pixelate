@@ -59,6 +59,25 @@ function applyEffectColorMode(rc: RenderContext, styled: RGB): RGB {
   );
 }
 
+// Reusable offscreen canvas for blitting ImageData via drawImage so the
+// canvas transform (DPR scale) is respected. putImageData ignores transforms,
+// which causes content to appear only in the top-left on high-DPR displays.
+let _blitCanvas: HTMLCanvasElement | null = null;
+let _blitCtx: CanvasRenderingContext2D | null = null;
+
+function blitImageData(rc: RenderContext, img: ImageData) {
+  if (!_blitCanvas) {
+    _blitCanvas = document.createElement("canvas");
+    _blitCtx = _blitCanvas.getContext("2d")!;
+  }
+  if (_blitCanvas.width !== img.width || _blitCanvas.height !== img.height) {
+    _blitCanvas.width = img.width;
+    _blitCanvas.height = img.height;
+  }
+  _blitCtx!.putImageData(img, 0, 0);
+  rc.ctx.drawImage(_blitCanvas, 0, 0, rc.width, rc.height);
+}
+
 function paintImageData(rc: RenderContext, img: ImageData, fn: (r: number, g: number, b: number, a: number, x: number, y: number) => RGB) {
   const data = img.data;
   for (let y = 0; y < img.height; y++) {
@@ -73,7 +92,7 @@ function paintImageData(rc: RenderContext, img: ImageData, fn: (r: number, g: nu
       data[i + 3] = a;
     }
   }
-  rc.ctx.putImageData(img, 0, 0);
+  blitImageData(rc, img);
 }
 
 function drawBlocky(rc: RenderContext, img: ImageData, painter: (x: number, y: number, r: number, g: number, b: number, v: number, seed: number, size: number) => void) {
@@ -271,7 +290,7 @@ function renderDither(rc: RenderContext, img: ImageData) {
         );
       }
     }
-    rc.ctx.putImageData(img, 0, 0);
+    blitImageData(rc, img);
     return;
   }
 
@@ -309,7 +328,7 @@ function renderDither(rc: RenderContext, img: ImageData) {
       }
     }
   }
-  rc.ctx.putImageData(img, 0, 0);
+  blitImageData(rc, img);
 }
 
 function renderGlyphs(rc: RenderContext, img: ImageData, mode: RenderMode) {
@@ -611,22 +630,41 @@ function renderLiquid(rc: RenderContext, animateMode: boolean) {
   const cellH = height / rows;
   const disp = (0.7 + intensity * 3.6) * Math.min(cellW, cellH);
 
+  // Per-pixel displacement: sample the velocity field with bilinear interpolation
+  // so there are no visible tile boundaries.
+  const srcCtx = src.getContext("2d", { willReadFrequently: true })!;
+  const srcData = srcCtx.getImageData(0, 0, src.width, src.height);
+  const iw = src.width;
+  const ih = src.height;
+  const outData = new ImageData(iw, ih);
+
+  for (let py = 0; py < ih; py++) {
+    for (let px = 0; px < iw; px++) {
+      const gx = (px / iw) * cols;
+      const gy = (py / ih) * rows;
+      const ux = sampleField(u, gx, gy, cols, rows);
+      const vy = sampleField(v, gx, gy, cols, rows);
+      const sx = clamp(Math.round(px - ux * disp), 0, iw - 1);
+      const sy = clamp(Math.round(py - vy * disp), 0, ih - 1);
+      const si = (sy * iw + sx) * 4;
+      const oi = (py * iw + px) * 4;
+      outData.data[oi]     = srcData.data[si];
+      outData.data[oi + 1] = srcData.data[si + 1];
+      outData.data[oi + 2] = srcData.data[si + 2];
+      outData.data[oi + 3] = srcData.data[si + 3];
+    }
+  }
+
+  const outCanvas = document.createElement("canvas");
+  outCanvas.width = iw;
+  outCanvas.height = ih;
+  outCanvas.getContext("2d")!.putImageData(outData, 0, 0);
+
   ctx.save();
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   ctx.filter = `blur(${intensity * 0.45}px) saturate(${1.08 + intensity * 0.42}) contrast(${1.03 + intensity * 0.14})`;
-  for (let y = 0; y < rows; y++) {
-    for (let x = 0; x < cols; x++) {
-      const i = fIdx(x, y, cols);
-      const px = x * cellW;
-      const py = y * cellH;
-      const dx = u[i] * disp;
-      const dy = v[i] * disp;
-      const sx = clamp(px - dx, 0, width - cellW);
-      const sy = clamp(py - dy, 0, height - cellH);
-      ctx.drawImage(src, sx, sy, cellW, cellH, px, py, cellW + 1, cellH + 1);
-    }
-  }
+  ctx.drawImage(outCanvas, 0, 0, width, height);
   ctx.restore();
 
   // Caustic highlights from local velocity divergence.
@@ -683,6 +721,31 @@ export function renderEffect(rc: RenderContext) {
   }
   if (modeName === "thermal") {
     renderThermalHeatwave(trc, img, modeAnimated);
+    return;
+  }
+  if (modeName === "night_camera") {
+    const scanStep = Math.max(2, Math.floor(e.scale * 0.3));
+    const iw = img.width;
+    const ih = img.height;
+    const cx = iw * 0.5;
+    const cy = ih * 0.5;
+    const maxD = Math.hypot(cx, cy);
+    paintImageData(trc, img, (r, g, b, _a, x, y) => {
+      const v = lum(r, g, b);
+      const amp = Math.min(1, v * (0.5 + e.intensity * 1.5));
+      const out: RGB =
+        amp < 0.45
+          ? mix([0, 0, 0], [8, 140, 18], amp / 0.45)
+          : mix([8, 140, 18], [90, 255, 60], (amp - 0.45) / 0.55);
+      const scan = scanStep > 0 && y % scanStep === 0 ? 0.72 : 1.0;
+      const vignette = 1 - (Math.hypot(x - cx, y - cy) / maxD) ** 2 * 0.55;
+      const noise = (hash(x * 19 + y * 37 + e.seed + Math.floor(trc.time * 8)) - 0.5) * 22;
+      return [
+        clamp(out[0] * scan * vignette + noise * 0.15),
+        clamp(out[1] * scan * vignette + noise),
+        clamp(out[2] * scan * vignette + noise * 0.25),
+      ];
+    });
     return;
   }
   if (modeName === "infrared" || modeName === "solarize" || modeName === "duotone" || modeName === "risograph") {
@@ -756,7 +819,7 @@ export function renderEffect(rc: RenderContext) {
         data[i + 2] = remapped[2];
       }
     }
-    ctx.putImageData(img, 0, 0);
+    blitImageData(trc, img);
     return;
   }
   if (modeName === "glitch") {

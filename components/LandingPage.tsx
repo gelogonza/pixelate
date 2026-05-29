@@ -9,7 +9,7 @@ const ASCII_TRAIL = ["@", "#", "%", "*", "+", ":", ".", "="];
 const GITHUB_URL = "https://github.com/gelogonza/pixelate";
 
 const CAPABILITIES = [
-  { title: "40+ Render Modes", description: "ASCII, dots, flow field, string art, and more", tag: "render" },
+  { title: "30+ Render Modes", description: "ASCII, dots, flow field, string art, and more", tag: "render" },
   { title: "Timeline Editor", description: "Keyframe multiple effects and export as video", tag: "export" },
   { title: "Mouse Interaction", description: "Every mode responds to your cursor with spring physics", tag: "interact" },
   { title: "Live Controls", description: "Every parameter updates the canvas in real time", tag: "interact" },
@@ -468,7 +468,7 @@ export function LandingPage({ demoVideos }: LandingProps) {
               data-io-child
               className="mt-5 md:mt-10 max-w-2xl text-[13px] md:text-[15px] leading-[1.8] tracking-[0.02em] text-black/70"
             >
-              40+ render modes. Timeline editor. Export anything. Runs entirely in your browser.
+              30+ render modes. Timeline editor. Export anything. Runs entirely in your browser.
             </p>
           </div>
           <div
