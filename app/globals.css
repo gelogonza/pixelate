@@ -236,6 +236,14 @@ body {
   }
 }
 
+/* Suppress native iOS/webkit video play button overlay */
+video::-webkit-media-controls {
+  display: none !important;
+}
+video::-webkit-media-controls-start-playback-button {
+  display: none !important;
+}
+
 /* ── Section spacing ── */
 .ed-showcase {
   padding: 8px 0 6px;

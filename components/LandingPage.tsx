@@ -47,7 +47,7 @@ function BeforeAfter() {
               className="absolute inset-0 overflow-hidden"
               style={{ clipPath: `inset(0 0 0 ${split}%)` }}
             >
-              <video autoPlay muted loop playsInline className="block w-full aspect-video object-cover">
+              <video autoPlay muted loop playsInline preload="metadata" className="block w-full aspect-video object-cover">
                 <source src="/demos/pixelate(11).webm" type="video/webm" />
               </video>
             </div>
@@ -314,6 +314,7 @@ function MediaModal({ src, onClose }: { src: string; onClose: () => void }) {
           muted
           loop
           playsInline
+          preload="metadata"
           className="w-full max-h-[85vh] object-contain"
         >
           <source src={src} type="video/webm" />
@@ -453,7 +454,7 @@ export function LandingPage({ demoVideos }: LandingProps) {
             </div>
             <h1
               data-io-child
-              className="mt-3 text-left leading-[0.95]"
+              className="mt-3 text-left leading-[1.2]"
               style={{
                 fontFamily: PLAYFAIR_STACK,
                 fontStyle: "normal",
@@ -477,7 +478,7 @@ export function LandingPage({ demoVideos }: LandingProps) {
           >
             {heroVideo ? (
               <div className="ed-hero-bleed">
-                <video autoPlay muted loop playsInline className="h-full w-full object-cover">
+                <video autoPlay muted loop playsInline preload="metadata" className="h-full w-full object-cover">
                   <source src={heroVideo} type="video/webm" />
                 </video>
               </div>
@@ -498,7 +499,7 @@ export function LandingPage({ demoVideos }: LandingProps) {
                     className="ed-marquee-item cursor-pointer"
                     onClick={() => setActiveMedia(src)}
                   >
-                    <video autoPlay muted loop playsInline className="h-full w-full object-cover pointer-events-none">
+                    <video autoPlay muted loop playsInline preload="metadata" className="h-full w-full object-cover pointer-events-none">
                       <source src={src} type="video/webm" />
                     </video>
                   </article>
