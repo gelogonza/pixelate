@@ -3,13 +3,28 @@
 import { useEffect, useRef, useCallback } from "react";
 import { AppState, MediaSource, isVideo } from "@/lib/types";
 import { buildCells, computeGridDims, GridDims, resampleCells } from "@/lib/imageData";
-import { Cell, RenderContext } from "@/renderers/types";
+import { Cell, GeometryContext, RenderContext } from "@/renderers/types";
 import { render, CELL_MODES } from "@/renderers";
-import { EFFECT_MODES } from "@/lib/modes";
+import { EFFECT_MODES, GEOMETRY_MODES, frameAspectRatio } from "@/lib/modes";
 import { paintBackground } from "@/renderers/background";
+import { SceneHost } from "@/engine/SceneHost";
+import type { FrameInfo } from "@/engine/types";
 
 export interface RendererHandle {
   exportSnapshot: () => { cells: Cell[]; dims: GridDims; width: number; height: number } | null;
+  /**
+   * Render one exact frame at `time` seconds and leave it on the canvas.
+   *
+   * Call with increasing `time` starting from 0: several modes carry state
+   * across frames on purpose (the fluid solver, matrix rain, the depth
+   * renderer's materialization timing), so they must be stepped in order.
+   *
+   * Pointer physics is skipped, which is what makes the result reproducible.
+   * Returns false if nothing could be rendered.
+   */
+  renderFrameAt: (time: number) => Promise<boolean>;
+  /** Reset cross-frame renderer state so an export starts from a clean slate. */
+  resetForExport: () => void;
 }
 
 interface MouseState {
@@ -68,6 +83,13 @@ export function useRenderer(
   const proxyFieldRef = useRef<ProxyField | null>(null);
   const layerCanvasMapRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
 
+  // Procedural source. The host is created lazily so media-only sessions never
+  // pay for a WebGL context.
+  const sceneHostRef = useRef<SceneHost | null>(null);
+  /** The source actually being drawn this frame: imported media, or the scene's raster. */
+  const activeSourceRef = useRef<MediaSource | null>(null);
+  const geometryRef = useRef<GeometryContext | null>(null);
+
   const rafRef = useRef<number | null>(null);
   const lastTRef = useRef(0);
   const startTRef = useRef(0);
@@ -113,9 +135,82 @@ export function useRenderer(
     proxyFieldRef.current = { cols, rows, cellWidth, cellHeight, points };
   }, [proxyCellSizeForState]);
 
-  const rebuild = useCallback((): boolean => {
-    const src = mediaRef.current;
+  /**
+   * Advance the procedural scene to `time` and publish its raster and sample
+   * cloud for this frame. Returns the source the renderers should draw from.
+   *
+   * The scene is a pure function of time, so this is seek-safe: the same `time`
+   * always produces the same frame.
+   */
+  const resolveSource = useCallback((time: number): MediaSource | null => {
+    const s = stateRef.current;
+    if (s.sourceKind !== "scene") {
+      geometryRef.current = null;
+      activeSourceRef.current = mediaRef.current;
+      return mediaRef.current;
+    }
+
+    let host = sceneHostRef.current;
+    if (!host) {
+      host = new SceneHost();
+      sceneHostRef.current = host;
+    }
+
+    const { width, height } = sizeRef.current;
     const canvas = canvasRef.current;
+    // Render the scene at the canvas backing-store resolution so export quality
+    // follows the render-resolution setting rather than the CSS size.
+    const rw = Math.max(1, canvas?.width || Math.floor(width) || 1);
+    const rh = Math.max(1, canvas?.height || Math.floor(height) || 1);
+
+    host.setScene(s.scene.id, s.scene.params);
+    host.resize(rw, rh);
+
+    const fps = 30;
+    const duration = Math.max(0.1, s.videoDurationSec || 6);
+    const t = duration > 0 ? time % duration : time;
+    const frameInfo: FrameInfo = {
+      frame: Math.round(t * fps),
+      time: t,
+      duration,
+      progress: duration > 0 ? t / duration : 0,
+      fps,
+      width: rw,
+      height: rh,
+      aspectRatio: rw / rh,
+    };
+
+    host.update(frameInfo, s.scene.params, s.camera);
+
+    if (GEOMETRY_MODES.has(s.mode)) {
+      geometryRef.current = { cloud: host.cloud(frameInfo, s.scene.params), camera: host.getCamera() };
+    } else {
+      geometryRef.current = null;
+    }
+
+    // Shaded mode blits the raster itself; depth ASCII never needs one.
+    const needsRaster = s.mode !== "geometry_ascii";
+    const raster = needsRaster
+      ? host.raster(s.backgroundEnabled ? s.background : null)
+      : null;
+
+    activeSourceRef.current = raster;
+    return raster;
+  }, [canvasRef]);
+
+  const rebuild = useCallback((): boolean => {
+    const src = activeSourceRef.current;
+    const canvas = canvasRef.current;
+    const sNow = stateRef.current;
+
+    // Geometry modes read the sample cloud, not a raster or a cell grid.
+    if (GEOMETRY_MODES.has(sNow.mode)) {
+      cellsRef.current = [];
+      const { width: gw, height: gh } = sizeRef.current;
+      if (gw > 0 && gh > 0) ensureProxyField(gw, gh);
+      return true;
+    }
+
     if (!src || !canvas) {
       cellsRef.current = [];
       proxyFieldRef.current = null;
@@ -164,14 +259,26 @@ export function useRenderer(
       return;
     }
 
+    // An explicit frame aspect wins for every source kind — it is what the export
+    // is shaped to. Media is then letterboxed into that frame by the renderers,
+    // which all contain-fit the source. With "auto", media keeps its own aspect
+    // and a scene fills the available area.
     let iw = 0, ih = 0;
-    if (src) {
+    const forcedRatio = frameAspectRatio(stateRef.current.frameAspect);
+    if (forcedRatio) {
+      iw = forcedRatio * 1000;
+      ih = 1000;
+    } else if (stateRef.current.sourceKind === "scene") {
+      // No intrinsic size and no forced shape: fill the viewport.
+      iw = 0;
+      ih = 0;
+    } else if (src) {
       if (isVideo(src)) {
         iw = src.videoWidth;
         ih = src.videoHeight;
       } else {
-        iw = src.naturalWidth || src.width;
-        ih = src.naturalHeight || src.height;
+        iw = (src as HTMLImageElement).naturalWidth || src.width;
+        ih = (src as HTMLImageElement).naturalHeight || src.height;
       }
     }
 
@@ -547,12 +654,23 @@ export function useRenderer(
 
     const cctx = copy.getContext("2d", { willReadFrequently: true })!;
     cctx.setTransform(1, 0, 0, 1, 0, 0);
-    cctx.filter = "none";
     cctx.globalAlpha = 1;
     cctx.globalCompositeOperation = "source-over";
     cctx.clearRect(0, 0, copy.width, copy.height);
-    cctx.drawImage(canvas, 0, 0);
 
+    // Bake brightness / saturation / hue into the offscreen copy so the CSS
+    // filter is applied in a plain drawImage call (most reliable path across
+    // browsers). Applying ctx.filter on the main canvas while using a
+    // non-source-over composite is unreliable — silently ignored on iOS Safari
+    // < 18 — so we never set ctx.filter on the main context.
+    const hasColorFilter = out.brightness !== 1 || out.saturation !== 1 || out.hue !== 0;
+    cctx.filter = hasColorFilter
+      ? `brightness(${out.brightness}) saturate(${out.saturation}) hue-rotate(${out.hue}deg)`
+      : "none";
+    cctx.drawImage(canvas, 0, 0);
+    cctx.filter = "none";
+
+    // Luminance pass on the already color-filtered copy.
     if (out.luminance !== 1) {
       const img = cctx.getImageData(0, 0, copy.width, copy.height);
       const data = img.data;
@@ -571,11 +689,14 @@ export function useRenderer(
       cctx.putImageData(img, 0, 0);
     }
 
+    // Blit the fully-processed copy back using only globalAlpha for opacity.
+    // No filter on the main ctx, no "copy" composite — plain source-over after
+    // clearing is equivalent and works everywhere.
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.filter = `brightness(${out.brightness}) saturate(${out.saturation}) hue-rotate(${out.hue}deg)`;
+    ctx.filter = "none";
     ctx.globalAlpha = Math.max(0, Math.min(1, out.opacity));
-    ctx.globalCompositeOperation = "copy";
+    ctx.globalCompositeOperation = "source-over";
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(copy, 0, 0);
     ctx.restore();
@@ -600,7 +721,8 @@ export function useRenderer(
       dims: dimsRef.current,
       state: stateRef.current,
       time,
-      source: mediaRef.current,
+      source: activeSourceRef.current,
+      geometry: geometryRef.current,
     };
 
     const s = stateRef.current;
@@ -642,7 +764,7 @@ export function useRenderer(
       // Build cells for cell-mode layers
       let layerCells: Cell[] = [];
       let layerDims: GridDims = dimsRef.current;
-      const src = mediaRef.current;
+      const src = activeSourceRef.current;
       if (CELL_MODES.has(layer.visual.mode) && src) {
         const cellMode = layer.visual.mode as "ascii" | "pixels" | "dots" | "mosaic";
         const params =
@@ -675,6 +797,7 @@ export function useRenderer(
         state: layerState,
         time,
         source: src,
+        geometry: geometryRef.current,
       });
 
       // Composite onto main canvas
@@ -694,30 +817,33 @@ export function useRenderer(
     lastTRef.current = t;
     const time = (t - startTRef.current) / 1000;
 
+    // Advance the active source (scene render, or just the current media) first,
+    // so cell building and drawing both see this frame's raster.
+    const sNow = stateRef.current;
+    const isScene = sNow.sourceKind === "scene";
+    resolveSource(time);
+
     if (needsRebuildRef.current) {
       const ok = rebuild();
       if (ok) needsRebuildRef.current = false;
     }
 
-    const sNow = stateRef.current;
     if (!CELL_MODES.has(sNow.mode)) {
       const sz = sizeRef.current;
       if (sz.width > 0 && sz.height > 0) ensureProxyField(sz.width, sz.height);
     }
 
-    // Per-frame resample for video sources in cell modes.
-    const src = mediaRef.current;
-    if (
-      src &&
-      isVideo(src) &&
-      CELL_MODES.has(sNow.mode) &&
-      cellsRef.current.length > 0 &&
-      src.readyState >= 2 // HAVE_CURRENT_DATA
-    ) {
+    // Per-frame resample for sources whose pixels change every frame: playing
+    // video, and procedural scenes (whose raster is re-rendered each tick).
+    const src = activeSourceRef.current;
+    const liveSource =
+      !!src &&
+      (isScene || (isVideo(src) && src.readyState >= 2)); // HAVE_CURRENT_DATA
+    if (liveSource && CELL_MODES.has(sNow.mode) && cellsRef.current.length > 0) {
       const withEdges =
         sNow.mode === "ascii" &&
         (sNow.ascii.algorithm === "edge" || sNow.ascii.algorithm === "edge_directional");
-      resampleCells(src, cellsRef.current, dimsRef.current, withEdges);
+      resampleCells(src!, cellsRef.current, dimsRef.current, withEdges);
     }
 
     const moved = CELL_MODES.has(sNow.mode) ? stepPhysics(dt) : stepProxyPhysics(dt);
@@ -752,10 +878,12 @@ export function useRenderer(
       moved ||
       animated ||
       videoActive ||
+      // A procedural scene is animated by definition — it must keep ticking.
+      isScene ||
       mouseActive;
 
     if (stillNeeded) requestFrame();
-  }, [draw, rebuild, requestFrame, stepPhysics, stepProxyPhysics, ensureProxyField]);
+  }, [draw, rebuild, requestFrame, resolveSource, stepPhysics, stepProxyPhysics, ensureProxyField]);
 
   // Mouse handling
   useEffect(() => {
@@ -834,6 +962,8 @@ export function useRenderer(
     requestFrame();
   }, [
     state.mode,
+    state.sourceKind,
+    state.scene.id,
     state.ascii.density,
     state.ascii.charAspect,
     state.ascii.algorithm,
@@ -848,6 +978,11 @@ export function useRenderer(
     requestFrame();
   }, [state, requestFrame]);
 
+  // Switching source kind re-fits the canvas (scene sources ignore media aspect).
+  useEffect(() => {
+    resize();
+  }, [state.sourceKind, state.frameAspect, resize]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -855,6 +990,8 @@ export function useRenderer(
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
+      sceneHostRef.current?.dispose();
+      sceneHostRef.current = null;
     };
   }, []);
 
@@ -867,6 +1004,74 @@ export function useRenderer(
         width: sizeRef.current.width,
         height: sizeRef.current.height,
       };
+    },
+
+    resetForExport: () => {
+      // Park the pointer far outside so no warp or spring force applies, and
+      // settle every cell back onto its origin.
+      const m = mouseRef.current;
+      m.x = -99999; m.y = -99999; m.px = m.x; m.py = m.y;
+      m.vx = 0; m.vy = 0; m.inside = false; m.pulse = 0;
+      for (const c of cellsRef.current) {
+        c.x = c.ox; c.y = c.oy; c.vx = 0; c.vy = 0;
+      }
+      const proxy = proxyFieldRef.current;
+      if (proxy) {
+        for (const p of proxy.points) {
+          p.x = p.ox; p.y = p.oy; p.vx = 0; p.vy = 0;
+        }
+      }
+      needsRebuildRef.current = true;
+    },
+
+    renderFrameAt: async (time: number) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return false;
+      const s = stateRef.current;
+
+      // Imported video has to be seeked, and seeking is the one part of this
+      // that is not frame-exact: browsers land on the nearest decodable frame.
+      const media = mediaRef.current;
+      if (s.sourceKind === "media" && media && isVideo(media)) {
+        const target = Math.min(time, Math.max(0, (media.duration || 0) - 1e-3));
+        if (Number.isFinite(target) && Math.abs(media.currentTime - target) > 1e-3) {
+          await new Promise<void>((resolve) => {
+            let settled = false;
+            const done = () => {
+              if (settled) return;
+              settled = true;
+              media.removeEventListener("seeked", done);
+              resolve();
+            };
+            media.addEventListener("seeked", done);
+            try { media.currentTime = target; } catch { done(); }
+            // Never hang the export on a seek that does not fire.
+            setTimeout(done, 400);
+          });
+        }
+      }
+
+      resolveSource(time);
+
+      if (needsRebuildRef.current) {
+        if (rebuild()) needsRebuildRef.current = false;
+      }
+
+      const src = activeSourceRef.current;
+      if (
+        src &&
+        CELL_MODES.has(s.mode) &&
+        cellsRef.current.length > 0
+      ) {
+        const withEdges =
+          s.mode === "ascii" &&
+          (s.ascii.algorithm === "edge" || s.ascii.algorithm === "edge_directional");
+        resampleCells(src, cellsRef.current, dimsRef.current, withEdges);
+      }
+
+      // No physics step: an export must not depend on pointer history.
+      draw(time);
+      return true;
     },
   };
 }
