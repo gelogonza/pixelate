@@ -47,7 +47,7 @@ function BeforeAfter() {
               className="absolute inset-0 overflow-hidden"
               style={{ clipPath: `inset(0 0 0 ${split}%)` }}
             >
-              <video autoPlay muted loop playsInline preload="auto" className="block w-full aspect-video object-cover">
+              <video autoPlay muted loop playsInline preload="metadata" className="block w-full aspect-video object-cover pointer-events-none">
                 <source src="/demos/pixelate(11).webm" type="video/webm" />
               </video>
             </div>
@@ -314,7 +314,7 @@ function MediaModal({ src, onClose }: { src: string; onClose: () => void }) {
           muted
           loop
           playsInline
-          preload="auto"
+          preload="metadata"
           className="w-full max-h-[85vh] object-contain"
         >
           <source src={src} type="video/webm" />
@@ -367,6 +367,18 @@ export function LandingPage({ demoVideos }: LandingProps) {
     if (textColRef.current) ro.observe(textColRef.current);
     window.addEventListener("resize", sync);
     return () => { ro.disconnect(); window.removeEventListener("resize", sync); };
+  }, []);
+
+  useEffect(() => {
+    const playAll = () => {
+      document.querySelectorAll<HTMLVideoElement>("video[autoplay]").forEach((v) => {
+        if (v.paused) v.play().catch(() => {});
+      });
+    };
+    playAll();
+    // First touch unlocks autoplay on browsers that blocked it before a user gesture
+    window.addEventListener("touchstart", playAll, { once: true, passive: true });
+    return () => window.removeEventListener("touchstart", playAll);
   }, []);
 
   const heroVideo =
@@ -454,7 +466,7 @@ export function LandingPage({ demoVideos }: LandingProps) {
             </div>
             <h1
               data-io-child
-              className="mt-3 text-left leading-[0.95]"
+              className="mt-3 text-left leading-[1.2]"
               style={{
                 fontFamily: PLAYFAIR_STACK,
                 fontStyle: "normal",
@@ -478,11 +490,16 @@ export function LandingPage({ demoVideos }: LandingProps) {
           >
             {heroVideo ? (
               <div className="ed-hero-bleed">
-                <video autoPlay muted loop playsInline preload="auto" className="h-full w-full object-cover">
+                <video autoPlay muted loop playsInline preload="metadata" className="h-full w-full object-cover pointer-events-none">
                   <source src={heroVideo} type="video/webm" />
                 </video>
               </div>
             ) : null}
+            <div className="mt-4 flex justify-center md:justify-end">
+              <Link href="/app" className="ed-cta-btn">
+                Launch App →
+              </Link>
+            </div>
           </div>
         </div>
       </section>
@@ -499,7 +516,7 @@ export function LandingPage({ demoVideos }: LandingProps) {
                     className="ed-marquee-item cursor-pointer"
                     onClick={() => setActiveMedia(src)}
                   >
-                    <video autoPlay muted loop playsInline preload="auto" className="h-full w-full object-cover pointer-events-none">
+                    <video autoPlay muted loop playsInline preload="metadata" className="h-full w-full object-cover pointer-events-none">
                       <source src={src} type="video/webm" />
                     </video>
                   </article>
