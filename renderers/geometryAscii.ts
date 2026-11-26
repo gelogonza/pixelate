@@ -219,6 +219,32 @@ export function renderGeometryAscii(rc: RenderContext) {
   const offsetX = (width - cols * cellW) / 2 + cellW / 2;
   const offsetY = (height - rows * cellH) / 2 + cellH / 2;
   const useSourceColor = g.color.mode === "source" && !g.color.cycleColors;
+  const highlight = Math.max(0, Math.min(1, g.highlight ?? 0));
+
+  // Per-cell background pass, drawn from the same lit colour as the glyph. On a
+  // depth render this fills the surface between characters, so the form reads as
+  // a solid lit object rather than as scattered text.
+  if (highlight > 0) {
+    ctx.save();
+    ctx.globalAlpha = highlight;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const i = r * cols + c;
+        if (G.lum[i] <= 0.03) continue;
+        const ir = Math.round(Math.min(255, G.color[i * 3] * 255));
+        const ig = Math.round(Math.min(255, G.color[i * 3 + 1] * 255));
+        const ib = Math.round(Math.min(255, G.color[i * 3 + 2] * 255));
+        ctx.fillStyle = `rgb(${ir},${ig},${ib})`;
+        ctx.fillRect(
+          offsetX + c * cellW - cellW / 2,
+          offsetY + r * cellH - cellH / 2,
+          cellW + 0.5,
+          cellH + 0.5
+        );
+      }
+    }
+    ctx.restore();
+  }
 
   for (let r = 0; r < rows; r++) {
     const y = offsetY + r * cellH;

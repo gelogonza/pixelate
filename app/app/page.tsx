@@ -17,6 +17,10 @@ import {
   exportSVG,
   startVideoRecording,
 } from "@/lib/export";
+import {
+  exportDeterministicVideo,
+  supportsDeterministicExport,
+} from "@/lib/export/deterministic";
 
 const MEDIA_ACCEPT =
   "image/png,image/jpeg,image/webp,video/mp4,video/webm,video/ogg,video/quicktime,.mov";
@@ -118,39 +122,87 @@ export default function PixelateAppPage() {
   }, []);
 
   const handleVideo = useCallback(async () => {
-    const canvas = canvasRef.current?.canvas;
-    if (!canvas) return;
+    const api = canvasRef.current;
+    const canvas = api?.canvas;
+    if (!api || !canvas) return;
     const s = stateRef.current;
     const timelineDriven = s.timeline.enabled && s.timeline.keyframes.length > 0;
     const mediaEl = mediaRef.current;
-    const videoDuration = mediaEl && isVideo(mediaEl) && isFinite(mediaEl.duration) ? mediaEl.duration : Infinity;
+    const videoDuration =
+      mediaEl && isVideo(mediaEl) && isFinite(mediaEl.duration) ? mediaEl.duration : Infinity;
     const durationSec = timelineDriven
       ? Math.max(0.1, Math.min(60, s.timeline.duration))
       : Math.max(1, Math.min(videoDuration, Math.round(s.videoDurationSec)));
-    const duration = durationSec * 1000;
 
     const restoreTimeline = s.timeline;
+    setRecording(true);
+    setRecordProgress(0);
+
+    // Preferred path: render each frame at an exact t = frame / fps and encode
+    // with WebCodecs. Reproducible, and not bound to real time.
+    if (supportsDeterministicExport()) {
+      const fps = 30;
+
+      // A playing video would advance under us between seeks.
+      if (mediaEl && isVideo(mediaEl)) {
+        try { mediaEl.pause(); } catch { /* ok */ }
+      }
+      if (timelineDriven) {
+        setState((prev) => ({
+          ...prev,
+          timeline: { ...prev.timeline, enabled: true, playing: false, currentTime: 0 },
+        }));
+      }
+
+      try {
+        const result = await exportDeterministicVideo({
+          canvas,
+          resetForExport: api.resetForExport,
+          durationSec,
+          fps,
+          renderFrameAt: async (time) => {
+            if (timelineDriven) {
+              // Move the keyframe playhead, then let React commit it so the
+              // renderer sees the interpolated state for this exact frame.
+              setState((prev) => ({
+                ...prev,
+                timeline: { ...prev.timeline, currentTime: Math.min(time, prev.timeline.duration) },
+              }));
+              await new Promise<void>((r) => requestAnimationFrame(() => r()));
+            }
+            return api.renderFrameAt(time);
+          },
+          onProgress: ({ progress }) => setRecordProgress(progress),
+        });
+        downloadBlob(result.blob, "pixelate.mp4");
+        return;
+      } catch (e) {
+        console.error("[Pixelate] Deterministic export failed, falling back to capture", e);
+      } finally {
+        if (timelineDriven) setState((prev) => ({ ...prev, timeline: restoreTimeline }));
+        setRecording(false);
+        setRecordProgress(0);
+        if (mediaEl && isVideo(mediaEl)) {
+          try { await mediaEl.play(); } catch { /* ok */ }
+        }
+      }
+      return;
+    }
+
+    // Fallback: real-time canvas capture. Drops frames and drifts, but works
+    // where WebCodecs does not.
+    const duration = durationSec * 1000;
     if (timelineDriven) {
       setState((prev) => ({
         ...prev,
-        timeline: {
-          ...prev.timeline,
-          enabled: true,
-          playing: true,
-          loop: false,
-          currentTime: 0,
-        },
+        timeline: { ...prev.timeline, enabled: true, playing: true, loop: false, currentTime: 0 },
       }));
     }
-
-    // Reset video to start so export captures from the beginning
     if (mediaEl && isVideo(mediaEl)) {
       mediaEl.currentTime = 0;
       try { await mediaEl.play(); } catch { /* ok */ }
     }
 
-    setRecording(true);
-    setRecordProgress(0);
     const rec = startVideoRecording(canvas, 30);
     const start = performance.now();
     const tick = () => {
@@ -167,9 +219,7 @@ export default function PixelateAppPage() {
       } catch (e) {
         console.error(e);
       } finally {
-        if (timelineDriven) {
-          setState((prev) => ({ ...prev, timeline: restoreTimeline }));
-        }
+        if (timelineDriven) setState((prev) => ({ ...prev, timeline: restoreTimeline }));
         setRecording(false);
         setRecordProgress(0);
       }

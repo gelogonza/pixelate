@@ -5,13 +5,26 @@ import { AppState, MediaSource, isVideo } from "@/lib/types";
 import { buildCells, computeGridDims, GridDims, resampleCells } from "@/lib/imageData";
 import { Cell, GeometryContext, RenderContext } from "@/renderers/types";
 import { render, CELL_MODES } from "@/renderers";
-import { EFFECT_MODES, GEOMETRY_MODES, sceneAspectRatio } from "@/lib/modes";
+import { EFFECT_MODES, GEOMETRY_MODES, frameAspectRatio } from "@/lib/modes";
 import { paintBackground } from "@/renderers/background";
 import { SceneHost } from "@/engine/SceneHost";
 import type { FrameInfo } from "@/engine/types";
 
 export interface RendererHandle {
   exportSnapshot: () => { cells: Cell[]; dims: GridDims; width: number; height: number } | null;
+  /**
+   * Render one exact frame at `time` seconds and leave it on the canvas.
+   *
+   * Call with increasing `time` starting from 0: several modes carry state
+   * across frames on purpose (the fluid solver, matrix rain, the depth
+   * renderer's materialization timing), so they must be stepped in order.
+   *
+   * Pointer physics is skipped, which is what makes the result reproducible.
+   * Returns false if nothing could be rendered.
+   */
+  renderFrameAt: (time: number) => Promise<boolean>;
+  /** Reset cross-frame renderer state so an export starts from a clean slate. */
+  resetForExport: () => void;
 }
 
 interface MouseState {
@@ -246,15 +259,19 @@ export function useRenderer(
       return;
     }
 
-    // A procedural scene has no intrinsic size, so its frame shape comes from
-    // the chosen aspect instead of from the source.
+    // An explicit frame aspect wins for every source kind — it is what the export
+    // is shaped to. Media is then letterboxed into that frame by the renderers,
+    // which all contain-fit the source. With "auto", media keeps its own aspect
+    // and a scene fills the available area.
     let iw = 0, ih = 0;
-    if (stateRef.current.sourceKind === "scene") {
-      const ratio = sceneAspectRatio(stateRef.current.sceneAspect);
-      if (ratio) {
-        iw = ratio * 1000;
-        ih = 1000;
-      }
+    const forcedRatio = frameAspectRatio(stateRef.current.frameAspect);
+    if (forcedRatio) {
+      iw = forcedRatio * 1000;
+      ih = 1000;
+    } else if (stateRef.current.sourceKind === "scene") {
+      // No intrinsic size and no forced shape: fill the viewport.
+      iw = 0;
+      ih = 0;
     } else if (src) {
       if (isVideo(src)) {
         iw = src.videoWidth;
@@ -964,7 +981,7 @@ export function useRenderer(
   // Switching source kind re-fits the canvas (scene sources ignore media aspect).
   useEffect(() => {
     resize();
-  }, [state.sourceKind, state.sceneAspect, resize]);
+  }, [state.sourceKind, state.frameAspect, resize]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -987,6 +1004,74 @@ export function useRenderer(
         width: sizeRef.current.width,
         height: sizeRef.current.height,
       };
+    },
+
+    resetForExport: () => {
+      // Park the pointer far outside so no warp or spring force applies, and
+      // settle every cell back onto its origin.
+      const m = mouseRef.current;
+      m.x = -99999; m.y = -99999; m.px = m.x; m.py = m.y;
+      m.vx = 0; m.vy = 0; m.inside = false; m.pulse = 0;
+      for (const c of cellsRef.current) {
+        c.x = c.ox; c.y = c.oy; c.vx = 0; c.vy = 0;
+      }
+      const proxy = proxyFieldRef.current;
+      if (proxy) {
+        for (const p of proxy.points) {
+          p.x = p.ox; p.y = p.oy; p.vx = 0; p.vy = 0;
+        }
+      }
+      needsRebuildRef.current = true;
+    },
+
+    renderFrameAt: async (time: number) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return false;
+      const s = stateRef.current;
+
+      // Imported video has to be seeked, and seeking is the one part of this
+      // that is not frame-exact: browsers land on the nearest decodable frame.
+      const media = mediaRef.current;
+      if (s.sourceKind === "media" && media && isVideo(media)) {
+        const target = Math.min(time, Math.max(0, (media.duration || 0) - 1e-3));
+        if (Number.isFinite(target) && Math.abs(media.currentTime - target) > 1e-3) {
+          await new Promise<void>((resolve) => {
+            let settled = false;
+            const done = () => {
+              if (settled) return;
+              settled = true;
+              media.removeEventListener("seeked", done);
+              resolve();
+            };
+            media.addEventListener("seeked", done);
+            try { media.currentTime = target; } catch { done(); }
+            // Never hang the export on a seek that does not fire.
+            setTimeout(done, 400);
+          });
+        }
+      }
+
+      resolveSource(time);
+
+      if (needsRebuildRef.current) {
+        if (rebuild()) needsRebuildRef.current = false;
+      }
+
+      const src = activeSourceRef.current;
+      if (
+        src &&
+        CELL_MODES.has(s.mode) &&
+        cellsRef.current.length > 0
+      ) {
+        const withEdges =
+          s.mode === "ascii" &&
+          (s.ascii.algorithm === "edge" || s.ascii.algorithm === "edge_directional");
+        resampleCells(src, cellsRef.current, dimsRef.current, withEdges);
+      }
+
+      // No physics step: an export must not depend on pointer history.
+      draw(time);
+      return true;
     },
   };
 }

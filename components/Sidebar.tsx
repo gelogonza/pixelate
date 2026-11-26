@@ -22,7 +22,7 @@ import { Select } from "./controls/Select";
 import { TextInput } from "./controls/TextInput";
 import { ColorControls } from "./controls/ColorControls";
 import { ParamControl, groupParamDefs } from "./controls/ParamControl";
-import { EFFECT_MODES, MODE_OPTIONS, SCENE_ASPECTS, fallbackModeFor, modeLabel, modesForSource } from "@/lib/modes";
+import { EFFECT_MODES, MODE_OPTIONS, FRAME_ASPECTS, fallbackModeFor, modeLabel, modesForSource } from "@/lib/modes";
 import { captureVisualState, makeKeyframe, upsertKeyframe, withVisualState } from "@/lib/timeline";
 import { SCENE_ENTRIES, sceneParamDefs, sceneStartState } from "@/engine/SceneRegistry";
 import { GEOMETRY_CHAR_RAMPS } from "@/renderers/geometryAscii";
@@ -156,6 +156,9 @@ export function Sidebar({
     });
 
   const isScene = state.sourceKind === "scene";
+  // A procedural scene renders without any imported media, so export must not
+  // be gated on hasImage.
+  const canRender = hasImage || isScene;
   const availableModes = modesForSource(state.sourceKind);
 
   const setColor = <
@@ -380,24 +383,6 @@ export function Sidebar({
                 }))}
                 onChange={setSceneId}
               />
-              <div className="space-y-1">
-                <div className="text-[11px] uppercase tracking-wider text-white/50">Frame</div>
-                <div className="grid grid-cols-5 gap-1 bg-ink-850 p-1 rounded border border-white/5">
-                  {SCENE_ASPECTS.map((a) => (
-                    <button
-                      key={a.value}
-                      onClick={() => set("sceneAspect", a.value)}
-                      className={`text-[10px] uppercase tracking-wider py-1.5 rounded transition-colors ${
-                        state.sceneAspect === a.value
-                          ? "bg-white/90 text-ink-950"
-                          : "text-white/50 hover:text-white/80"
-                      }`}
-                    >
-                      {a.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
               {!SCENE_ENTRIES.find((e) => e.id === state.scene.id)?.hasSampleCloud && (
                 <div className="text-[10px] leading-relaxed text-white/30">
                   This scene has no dense surface sampler, so Depth ASCII falls back to
@@ -414,6 +399,41 @@ export function Sidebar({
               {hasImage ? "Replace media" : "Load image or video"}
             </button>
           )}
+
+          {/* The export frame. This shapes the canvas backing store, so PNG and
+              video exports come out at exactly this aspect. */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between text-[11px] uppercase tracking-wider text-white/50">
+              <span>Export frame</span>
+              {canvasSize && (
+                <span className="text-white/30 tabular-nums font-mono">
+                  {canvasSize.width}x{canvasSize.height}
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-5 gap-1 bg-ink-850 p-1 rounded border border-white/5">
+              {FRAME_ASPECTS.map((a) => (
+                <button
+                  key={a.value}
+                  onClick={() => set("frameAspect", a.value)}
+                  className={`text-[10px] uppercase tracking-wider py-1.5 rounded transition-colors ${
+                    state.frameAspect === a.value
+                      ? "bg-white/90 text-ink-950"
+                      : "text-white/50 hover:text-white/80"
+                  }`}
+                >
+                  {a.label}
+                </button>
+              ))}
+            </div>
+            <div className="text-[10px] leading-relaxed text-white/30">
+              {state.frameAspect === "fill"
+                ? isScene
+                  ? "Scene fills the viewport."
+                  : "Media keeps its own aspect."
+                : "Source is fitted into this frame. Set Render resolution under Canvas for the pixel size."}
+            </div>
+          </div>
         </Section>
 
         <Section title="Mode">
@@ -533,6 +553,14 @@ export function Sidebar({
                 step={1}
                 unit="px"
                 onChange={(v) => setGeometryAscii({ fontSize: v })}
+              />
+              <SliderInput
+                label="Cell highlight"
+                value={state.geometryAscii.highlight}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(v) => setGeometryAscii({ highlight: v })}
               />
               <TextInput
                 label="Embedded text"
@@ -863,6 +891,22 @@ export function Sidebar({
                 max={2.4}
                 step={0.05}
                 onChange={(v) => setAscii({ charAspect: v })}
+              />
+              <SliderInput
+                label="Cell highlight"
+                value={state.ascii.highlight}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(v) => setAscii({ highlight: v })}
+              />
+              <SliderInput
+                label="Source blend"
+                value={state.ascii.blend}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(v) => setAscii({ blend: v })}
               />
               <Select<AsciiAlgorithm>
                 label="Mapping algorithm"
@@ -1351,7 +1395,7 @@ export function Sidebar({
         <Section title="Source">
           <button
             onClick={onReplaceImage}
-            disabled={!hasImage}
+            disabled={!canRender}
             className="w-full text-xs py-2 rounded border border-white/10 hover:border-white/30 hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           >
             Replace media
@@ -1377,17 +1421,17 @@ export function Sidebar({
             unit="s"
           />
           <div className="grid grid-cols-2 gap-2">
-            <ExportButton onClick={onExportPNG} disabled={!hasImage}>PNG</ExportButton>
-            <ExportButton onClick={onExportSVG} disabled={!hasImage}>SVG</ExportButton>
-            <ExportButton onClick={onExportReact} disabled={!hasImage}>React</ExportButton>
+            <ExportButton onClick={onExportPNG} disabled={!canRender}>PNG</ExportButton>
+            <ExportButton onClick={onExportSVG} disabled={!canRender}>SVG</ExportButton>
+            <ExportButton onClick={onExportReact} disabled={!canRender}>React</ExportButton>
             <ExportButton
               onClick={onExportVideo}
-              disabled={!hasImage || recordingVideo}
+              disabled={!canRender || recordingVideo}
               active={recordingVideo}
             >
               {recordingVideo ? `Recording ${Math.round(recordingProgress * 100)}%` : "Video"}
             </ExportButton>
-            <ExportButton onClick={onExportFavicon} disabled={!hasImage}>
+            <ExportButton onClick={onExportFavicon} disabled={!canRender}>
               Favicon
             </ExportButton>
           </div>

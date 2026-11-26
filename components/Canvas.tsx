@@ -13,6 +13,8 @@ interface Props {
 export interface CanvasApi {
   canvas: HTMLCanvasElement | null;
   snapshot: RendererHandle["exportSnapshot"];
+  renderFrameAt: RendererHandle["renderFrameAt"];
+  resetForExport: RendererHandle["resetForExport"];
 }
 
 export const Canvas = forwardRef<CanvasApi, Props>(function Canvas({ media, state, onResize }, ref) {
@@ -25,6 +27,8 @@ export const Canvas = forwardRef<CanvasApi, Props>(function Canvas({ media, stat
     () => ({
       get canvas() { return canvasRef.current; },
       snapshot: handle.exportSnapshot,
+      renderFrameAt: handle.renderFrameAt,
+      resetForExport: handle.resetForExport,
     }),
     [handle]
   );

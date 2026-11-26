@@ -28,6 +28,7 @@ export function defaultGeometryAscii(): GeometryAsciiSettings {
     specularIntensity: 0.28,
     specularPower: 22,
     emissionBoost: 0.6,
+    highlight: 0,
     color: makeColorOptions("source"),
   };
 }
@@ -71,7 +72,9 @@ export function makeColorOptions(
 export const defaultState: AppState = {
   mode: "ascii",
   sourceKind: "media",
-  sceneAspect: "9:16",
+  // "fill" keeps existing behaviour: media uses its own aspect, scenes fill the
+  // viewport. Pick an explicit frame when exporting for a fixed target.
+  frameAspect: "fill",
   scene: { id: DEFAULT_SCENE_ID, params: sceneStartState(DEFAULT_SCENE_ID).params },
   camera: sceneStartState(DEFAULT_SCENE_ID).camera ?? { ...defaultCamera },
   geometryAscii: defaultGeometryAscii(),
@@ -87,6 +90,8 @@ export const defaultState: AppState = {
     inverted: false,
     dithered: false,
     charAspect: 1,
+    highlight: 0,
+    blend: 0,
     color: makeColorOptions("source"),
   },
   pixels: {

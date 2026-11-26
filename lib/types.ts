@@ -83,6 +83,14 @@ export interface AsciiSettings {
   inverted: boolean;        // flip mapping (light chars on dark areas, etc.)
   dithered: boolean;        // Floyd-Steinberg error diffusion on the brightness grid
   charAspect: number;
+  /**
+   * Per-cell background fill behind each glyph, 0–1. Paints the cell in its own
+   * sampled colour before the character is drawn, which fills the gaps between
+   * glyphs and reads much denser than foreground-only ASCII.
+   */
+  highlight: number;
+  /** 0–1 blend of the original source drawn beneath the ASCII layer. */
+  blend: number;
   color: ColorOptions;
 }
 
@@ -170,7 +178,7 @@ export type SourceKind = "media" | "scene";
  * a scene does not, so it needs to be told — and the social targets are the
  * whole point of fixing it.
  */
-export type SceneAspect = "fill" | "9:16" | "4:5" | "1:1" | "16:9";
+export type FrameAspect = "fill" | "9:16" | "4:5" | "1:1" | "16:9";
 // The aspect table and lookup live in lib/modes.ts with the other render-config
 // tables; this module stays types-only apart from the media helpers below.
 
@@ -205,13 +213,15 @@ export interface GeometryAsciiSettings {
   specularIntensity: number;
   specularPower: number;
   emissionBoost: number;
+  /** Per-cell background fill behind each glyph, 0–1. */
+  highlight: number;
   color: ColorOptions;
 }
 
 export interface VisualState {
   mode: RenderMode;
   sourceKind: SourceKind;
-  sceneAspect: SceneAspect;
+  frameAspect: FrameAspect;
   scene: SceneSettings;
   camera: CameraSettings;
   geometryAscii: GeometryAsciiSettings;

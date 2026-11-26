@@ -1,7 +1,8 @@
 import { RenderContext, Cell } from "./types";
-import { colorCssFor } from "./color";
+import { colorCssFor, colorRgbFor } from "./color";
 import { charsetFor, CHARSET_PRESETS } from "@/lib/charsets";
 import { paintBackground } from "./background";
+import { drawSourceContain } from "./sourceColor";
 
 /**
  * Brightness using the chosen algorithm. `c` carries raw RGB plus precomputed
@@ -47,10 +48,19 @@ function directionalIndex(angle: number, len: number): number {
 }
 
 export function renderAscii(rc: RenderContext) {
-  const { ctx, cells, width, height, dims, state, time } = rc;
+  const { ctx, cells, width, height, dims, state, time, source } = rc;
   const s = state.ascii;
 
   paintBackground(ctx, state, width, height);
+
+  // Optional ghost of the original underneath the glyphs.
+  const blend = Math.max(0, Math.min(1, s.blend ?? 0));
+  if (blend > 0 && source) {
+    ctx.save();
+    ctx.globalAlpha = blend;
+    drawSourceContain(ctx, source, width, height);
+    ctx.restore();
+  }
 
   const chars =
     s.algorithm === "edge_directional"
@@ -94,6 +104,24 @@ export function renderAscii(rc: RenderContext) {
         }
       }
     }
+  }
+
+  // Per-cell background pass. Drawn before the glyphs so characters sit on top
+  // of their own cell colour; this is what makes ASCII read as a filled image
+  // rather than as sparse text on a flat background.
+  const highlight = Math.max(0, Math.min(1, s.highlight ?? 0));
+  if (highlight > 0) {
+    const bw = dims.cellWidth + 0.5;
+    const bh = dims.cellHeight + 0.5;
+    ctx.save();
+    ctx.globalAlpha = highlight;
+    for (let i = 0; i < cells.length; i++) {
+      const c = cells[i];
+      const rgb = colorRgbFor(s.color, c, values[i], time);
+      ctx.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+      ctx.fillRect(c.x - bw / 2, c.y - bh / 2, bw, bh);
+    }
+    ctx.restore();
   }
 
   for (let i = 0; i < cells.length; i++) {

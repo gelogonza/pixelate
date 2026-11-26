@@ -1,8 +1,14 @@
-import { RenderMode, SceneAspect, SourceKind } from "./types";
+import { RenderMode, FrameAspect, SourceKind } from "./types";
 
-/** Frame shapes offered for procedural sources, with the social targets first. */
-export const SCENE_ASPECTS: { value: SceneAspect; label: string; ratio: number | null }[] = [
-  { value: "fill", label: "Fill", ratio: null },
+/**
+ * Export frame shape. Applies to every source kind: it is what the canvas backing
+ * store — and therefore every PNG and video export — is shaped to.
+ *
+ * "auto" means no fixed shape: imported media keeps its own aspect, and a
+ * procedural scene fills the available area.
+ */
+export const FRAME_ASPECTS: { value: FrameAspect; label: string; ratio: number | null }[] = [
+  { value: "fill", label: "Auto", ratio: null },
   { value: "9:16", label: "9:16", ratio: 9 / 16 },
   { value: "4:5", label: "4:5", ratio: 4 / 5 },
   { value: "1:1", label: "1:1", ratio: 1 },
@@ -10,8 +16,8 @@ export const SCENE_ASPECTS: { value: SceneAspect; label: string; ratio: number |
 ];
 
 /** null means "fill the available area" — no fixed aspect. */
-export function sceneAspectRatio(a: SceneAspect): number | null {
-  return SCENE_ASPECTS.find((x) => x.value === a)?.ratio ?? null;
+export function frameAspectRatio(a: FrameAspect): number | null {
+  return FRAME_ASPECTS.find((x) => x.value === a)?.ratio ?? null;
 }
 
 export interface ModeOption {

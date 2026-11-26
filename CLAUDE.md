@@ -25,6 +25,21 @@ The procedural engine was ported from the separate `ascii-studio` repo. See
 - Scenes are byte-identical ports from ascii-studio; do not edit them to fix Pixelate
   concerns, fix the host instead.
 
+## Export
+
+- **Frame aspect** (`lib/modes.ts` `FRAME_ASPECTS`) shapes the canvas backing store for
+  every source kind, and **Render resolution** sets the short edge. They compose: 9:16
+  at 1080p gives exactly 1080x1920. `auto` means media keeps its own aspect and a scene
+  fills the viewport.
+- **Video export is deterministic** (`lib/export/deterministic.ts`). Each frame is
+  rendered at an exact `t = frame / fps` through `RendererHandle.renderFrameAt`, encoded
+  with WebCodecs `VideoEncoder` and muxed to MP4 with `mp4-muxer`. Verified: two runs of
+  the same settings produce byte-identical `mdat` payloads.
+  - `renderFrameAt` must be called with increasing `t` from 0 — the fluid solver, matrix
+    rain and the depth renderer's materialization timing all carry state across frames.
+  - It skips pointer physics, which is what makes it reproducible.
+  - Falls back to the old real-time `MediaRecorder` path when WebCodecs is absent.
+
 ## Render Mode Compatibility
 
 `lib/modes.ts` carries `sources: SourceKind[]` per mode, and the sidebar filters on it.
@@ -126,8 +141,9 @@ Key custom classes:
 - Only 4 of 8 scenes implement `getSampleCloud`; the rest fall back to per-vertex mesh
   sampling and render sparse in Depth ASCII. `SceneRegistry` flags which, and the
   sidebar warns.
-- Video export is still real-time `MediaRecorder`, so it is not frame-exact. The scenes
-  are deterministic in `t`, so a frame-by-frame export path is now possible but not built.
+- Video export seeking is the one part that is not frame-exact, and only for imported
+  video sources: `renderFrameAt` seeks `video.currentTime` and browsers land on the
+  nearest decodable frame. Scenes and images are exact.
 
 ## Ignored Files
 
