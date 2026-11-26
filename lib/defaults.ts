@@ -1,4 +1,36 @@
-import { AppState, ColorMode, ColorOptions } from "./types";
+import { AppState, CameraSettings, ColorMode, ColorOptions, GeometryAsciiSettings } from "./types";
+import { sceneStartState } from "@/engine/SceneRegistry";
+
+export const DEFAULT_SCENE_ID = "blooming_flower";
+
+export const defaultCamera: CameraSettings = {
+  distance: 5.5,
+  fov: 45,
+  elevation: 20,
+  azimuth: 35,
+  autoRotate: true,
+  autoRotateSpeed: 15,
+  targetY: 0.2,
+};
+
+export function defaultGeometryAscii(): GeometryAsciiSettings {
+  return {
+    charRamp: "classic",
+    fontSize: 10,
+    embeddedMessage: "become",
+    directionalEdges: true,
+    edgeThreshold: 0.28,
+    edgeBoost: 1.25,
+    glitchEffect: true,
+    glitchDuration: 0.45,
+    multiscaleGlow: true,
+    glowIntensity: 0.85,
+    specularIntensity: 0.28,
+    specularPower: 22,
+    emissionBoost: 0.6,
+    color: makeColorOptions("source"),
+  };
+}
 
 export const DEFAULT_PALETTE = [
   "#60a5fa",
@@ -38,6 +70,11 @@ export function makeColorOptions(
 
 export const defaultState: AppState = {
   mode: "ascii",
+  sourceKind: "media",
+  sceneAspect: "9:16",
+  scene: { id: DEFAULT_SCENE_ID, params: sceneStartState(DEFAULT_SCENE_ID).params },
+  camera: sceneStartState(DEFAULT_SCENE_ID).camera ?? { ...defaultCamera },
+  geometryAscii: defaultGeometryAscii(),
   background: "#0a0a0a",
   backgroundEnabled: true,
   renderResolution: "auto",

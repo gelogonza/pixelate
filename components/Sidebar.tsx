@@ -5,11 +5,14 @@ import {
   AppState,
   AsciiAlgorithm,
   AsciiCharsetPreset,
+  CameraSettings,
   ColorOptions,
   DitherStyle,
+  GeometryAsciiSettings,
   RenderLayer,
   RenderMode,
   RenderResolution,
+  SourceKind,
 } from "@/lib/types";
 import { Section } from "./controls/Section";
 import { SliderInput } from "./controls/SliderInput";
@@ -18,8 +21,11 @@ import { ColorInput } from "./controls/ColorInput";
 import { Select } from "./controls/Select";
 import { TextInput } from "./controls/TextInput";
 import { ColorControls } from "./controls/ColorControls";
-import { EFFECT_MODES, MODE_OPTIONS, modeLabel } from "@/lib/modes";
+import { ParamControl, groupParamDefs } from "./controls/ParamControl";
+import { EFFECT_MODES, MODE_OPTIONS, SCENE_ASPECTS, fallbackModeFor, modeLabel, modesForSource } from "@/lib/modes";
 import { captureVisualState, makeKeyframe, upsertKeyframe, withVisualState } from "@/lib/timeline";
+import { SCENE_ENTRIES, sceneParamDefs, sceneStartState } from "@/engine/SceneRegistry";
+import { GEOMETRY_CHAR_RAMPS } from "@/renderers/geometryAscii";
 
 interface Props {
   state: AppState;
@@ -123,6 +129,34 @@ export function Sidebar({
     setState({ ...state, mouse: { ...state.mouse, ...patch } });
   const setTimeline = (patch: Partial<AppState["timeline"]>) =>
     setState({ ...state, timeline: { ...state.timeline, ...patch } });
+  const setCamera = (patch: Partial<CameraSettings>) =>
+    setState({ ...state, camera: { ...state.camera, ...patch } });
+  const setGeometryAscii = (patch: Partial<GeometryAsciiSettings>) =>
+    setState({ ...state, geometryAscii: { ...state.geometryAscii, ...patch } });
+
+  /** Switching source kind also moves off a mode the new source cannot render. */
+  const setSourceKind = (kind: SourceKind) =>
+    setState({ ...state, sourceKind: kind, mode: fallbackModeFor(kind, state.mode) });
+
+  /** Load a scene with the camera and duration it was composed for. */
+  const setSceneId = (id: string) => {
+    const start = sceneStartState(id);
+    setState({
+      ...state,
+      scene: { id, params: start.params },
+      camera: start.camera ?? state.camera,
+      videoDurationSec: start.duration ?? state.videoDurationSec,
+    });
+  };
+
+  const setSceneParam = (key: string, value: unknown) =>
+    setState({
+      ...state,
+      scene: { ...state.scene, params: { ...state.scene.params, [key]: value } },
+    });
+
+  const isScene = state.sourceKind === "scene";
+  const availableModes = modesForSource(state.sourceKind);
 
   const setColor = <
     M extends "ascii" | "pixels" | "dots" | "mosaic" | "blurred" | "black" | "transparent" | "effect"
@@ -315,17 +349,299 @@ export function Sidebar({
       </header>
 
       <div className="flex-1 overflow-y-auto px-4 py-4 px-scroll">
+        <Section title="Source">
+          <div className="grid grid-cols-2 gap-1 bg-ink-850 p-1 rounded border border-white/5">
+            {([
+              { value: "media", label: "Media" },
+              { value: "scene", label: "Scene" },
+            ] as { value: SourceKind; label: string }[]).map((s) => (
+              <button
+                key={s.value}
+                onClick={() => setSourceKind(s.value)}
+                className={`text-[11px] uppercase tracking-wider py-1.5 rounded transition-colors ${
+                  state.sourceKind === s.value
+                    ? "bg-white/90 text-ink-950"
+                    : "text-white/50 hover:text-white/80"
+                }`}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+
+          {isScene ? (
+            <>
+              <Select
+                label="Scene"
+                value={state.scene.id}
+                options={SCENE_ENTRIES.map((e) => ({
+                  value: e.id,
+                  label: `${e.category} - ${e.name}`,
+                }))}
+                onChange={setSceneId}
+              />
+              <div className="space-y-1">
+                <div className="text-[11px] uppercase tracking-wider text-white/50">Frame</div>
+                <div className="grid grid-cols-5 gap-1 bg-ink-850 p-1 rounded border border-white/5">
+                  {SCENE_ASPECTS.map((a) => (
+                    <button
+                      key={a.value}
+                      onClick={() => set("sceneAspect", a.value)}
+                      className={`text-[10px] uppercase tracking-wider py-1.5 rounded transition-colors ${
+                        state.sceneAspect === a.value
+                          ? "bg-white/90 text-ink-950"
+                          : "text-white/50 hover:text-white/80"
+                      }`}
+                    >
+                      {a.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {!SCENE_ENTRIES.find((e) => e.id === state.scene.id)?.hasSampleCloud && (
+                <div className="text-[10px] leading-relaxed text-white/30">
+                  This scene has no dense surface sampler, so Depth ASCII falls back to
+                  per-vertex sampling and renders sparser than the others.
+                </div>
+              )}
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={onReplaceImage}
+              className="w-full text-xs py-2 rounded border border-white/10 hover:border-white/30 hover:bg-white/5 transition-colors"
+            >
+              {hasImage ? "Replace media" : "Load image or video"}
+            </button>
+          )}
+        </Section>
+
         <Section title="Mode">
           <Select<RenderMode>
             label="Render mode"
             value={state.mode}
-            options={MODE_OPTIONS.map((m) => ({
+            options={availableModes.map((m) => ({
               value: m.value,
               label: `${m.group} - ${m.label}`,
             }))}
             onChange={(m) => set("mode", m)}
           />
+          {!isScene && (
+            <div className="text-[10px] leading-relaxed text-white/30">
+              Depth ASCII and Shaded 3D need surface geometry, so they are only
+              available on a scene source.
+            </div>
+          )}
         </Section>
+
+        {isScene && (
+          <>
+            {groupParamDefs(sceneParamDefs(state.scene.id)).map(([category, defs]) => (
+              <Section key={category} title={category}>
+                {defs.map((def) => (
+                  <ParamControl
+                    key={def.key}
+                    def={def}
+                    value={state.scene.params[def.key]}
+                    onChange={(v) => setSceneParam(def.key, v)}
+                  />
+                ))}
+              </Section>
+            ))}
+
+            <Section title="Camera">
+              <SliderInput
+                label="Distance"
+                value={state.camera.distance}
+                min={1.5}
+                max={14}
+                step={0.1}
+                onChange={(v) => setCamera({ distance: v })}
+              />
+              <SliderInput
+                label="Field of view"
+                value={state.camera.fov}
+                min={15}
+                max={90}
+                step={1}
+                unit="deg"
+                onChange={(v) => setCamera({ fov: v })}
+              />
+              <SliderInput
+                label="Elevation"
+                value={state.camera.elevation}
+                min={-89}
+                max={89}
+                step={1}
+                unit="deg"
+                onChange={(v) => setCamera({ elevation: v })}
+              />
+              <SliderInput
+                label="Azimuth"
+                value={state.camera.azimuth}
+                min={0}
+                max={360}
+                step={1}
+                unit="deg"
+                onChange={(v) => setCamera({ azimuth: v })}
+              />
+              <SliderInput
+                label="Target height"
+                value={state.camera.targetY}
+                min={-2}
+                max={2}
+                step={0.05}
+                onChange={(v) => setCamera({ targetY: v })}
+              />
+              <Toggle
+                label="Auto rotate"
+                value={state.camera.autoRotate}
+                onChange={(v) => setCamera({ autoRotate: v })}
+              />
+              {state.camera.autoRotate && (
+                <SliderInput
+                  label="Rotate speed"
+                  value={state.camera.autoRotateSpeed}
+                  min={-90}
+                  max={90}
+                  step={1}
+                  unit="deg/s"
+                  onChange={(v) => setCamera({ autoRotateSpeed: v })}
+                />
+              )}
+            </Section>
+          </>
+        )}
+
+        {state.mode === "geometry_ascii" && (
+          <>
+            <Section title="Depth ASCII">
+              <Select
+                label="Character ramp"
+                value={state.geometryAscii.charRamp}
+                options={Object.keys(GEOMETRY_CHAR_RAMPS).map((k) => ({
+                  value: k,
+                  label: k[0].toUpperCase() + k.slice(1),
+                }))}
+                onChange={(v) => setGeometryAscii({ charRamp: v })}
+              />
+              <SliderInput
+                label="Character size"
+                value={state.geometryAscii.fontSize}
+                min={4}
+                max={28}
+                step={1}
+                unit="px"
+                onChange={(v) => setGeometryAscii({ fontSize: v })}
+              />
+              <TextInput
+                label="Embedded text"
+                value={state.geometryAscii.embeddedMessage}
+                mono
+                placeholder="stamped into highlights and flying particles"
+                onChange={(v) => setGeometryAscii({ embeddedMessage: v })}
+              />
+            </Section>
+
+            <Section title="Depth edges">
+              <Toggle
+                label="Directional edges"
+                value={state.geometryAscii.directionalEdges}
+                hint="Contour glyphs from depth discontinuities"
+                onChange={(v) => setGeometryAscii({ directionalEdges: v })}
+              />
+              {state.geometryAscii.directionalEdges && (
+                <>
+                  <SliderInput
+                    label="Edge threshold"
+                    value={state.geometryAscii.edgeThreshold}
+                    min={0.05}
+                    max={0.8}
+                    step={0.01}
+                    onChange={(v) => setGeometryAscii({ edgeThreshold: v })}
+                  />
+                  <SliderInput
+                    label="Edge boost"
+                    value={state.geometryAscii.edgeBoost}
+                    min={1}
+                    max={2}
+                    step={0.05}
+                    onChange={(v) => setGeometryAscii({ edgeBoost: v })}
+                  />
+                </>
+              )}
+            </Section>
+
+            <Section title="Surface light">
+              <SliderInput
+                label="Specular strength"
+                value={state.geometryAscii.specularIntensity}
+                min={0}
+                max={1}
+                step={0.02}
+                onChange={(v) => setGeometryAscii({ specularIntensity: v })}
+              />
+              <SliderInput
+                label="Shininess"
+                value={state.geometryAscii.specularPower}
+                min={4}
+                max={64}
+                step={2}
+                onChange={(v) => setGeometryAscii({ specularPower: v })}
+              />
+              <SliderInput
+                label="Emission boost"
+                value={state.geometryAscii.emissionBoost}
+                min={0}
+                max={1.5}
+                step={0.05}
+                onChange={(v) => setGeometryAscii({ emissionBoost: v })}
+              />
+              <Toggle
+                label="Multiscale glow"
+                value={state.geometryAscii.multiscaleGlow}
+                onChange={(v) => setGeometryAscii({ multiscaleGlow: v })}
+              />
+              {state.geometryAscii.multiscaleGlow && (
+                <SliderInput
+                  label="Glow"
+                  value={state.geometryAscii.glowIntensity}
+                  min={0}
+                  max={2}
+                  step={0.05}
+                  onChange={(v) => setGeometryAscii({ glowIntensity: v })}
+                />
+              )}
+            </Section>
+
+            <Section title="Materialization">
+              <Toggle
+                label="Glitch in"
+                value={state.geometryAscii.glitchEffect}
+                hint="Flicker matrix glyphs as cells first appear"
+                onChange={(v) => setGeometryAscii({ glitchEffect: v })}
+              />
+              {state.geometryAscii.glitchEffect && (
+                <SliderInput
+                  label="Settle time"
+                  value={state.geometryAscii.glitchDuration}
+                  min={0.1}
+                  max={1.5}
+                  step={0.05}
+                  unit="s"
+                  onChange={(v) => setGeometryAscii({ glitchDuration: v })}
+                />
+              )}
+            </Section>
+
+            <Section title="Depth ASCII color">
+              <ColorControls
+                value={state.geometryAscii.color}
+                onChange={(c) => setGeometryAscii({ color: c })}
+              />
+            </Section>
+          </>
+        )}
 
         <Section title="Layers">
           <button

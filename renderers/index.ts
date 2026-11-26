@@ -7,6 +7,7 @@ import { renderBlurred } from "./blurred";
 import { renderBlack } from "./black";
 import { renderTransparent } from "./transparent";
 import { renderEffect } from "./effects";
+import { renderGeometryAscii, renderShaded } from "./geometryAscii";
 import { EFFECT_MODES } from "@/lib/modes";
 
 export const renderers: Record<string, ModeRenderer> = {
@@ -17,6 +18,8 @@ export const renderers: Record<string, ModeRenderer> = {
   blurred: renderBlurred,
   black: renderBlack,
   transparent: renderTransparent,
+  geometry_ascii: renderGeometryAscii,
+  shaded: renderShaded,
 };
 
 for (const mode of EFFECT_MODES) {

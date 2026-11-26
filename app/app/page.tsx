@@ -218,19 +218,21 @@ export default function PixelateAppPage() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "s" && media) {
+      if ((e.metaKey || e.ctrlKey) && e.key === "s" && (media || state.sourceKind === "scene")) {
         e.preventDefault();
         handlePNG();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [handlePNG, media]);
+  }, [handlePNG, media, state.sourceKind]);
 
   return (
     <div className="h-screen w-screen flex flex-col md:flex-row bg-ink-950 overflow-hidden font-mono text-white">
       <main className="relative flex-1 min-w-0 min-h-0">
-        {media ? (
+        {/* A procedural scene needs no imported media — the renderer generates
+            its own frames, so the canvas mounts without a file. */}
+        {media || state.sourceKind === "scene" ? (
           <Canvas
             ref={canvasRef}
             media={media}

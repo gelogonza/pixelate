@@ -1,5 +1,5 @@
 import { Cell } from "@/renderers/types";
-import { MediaSource, isVideo, mediaSize } from "./types";
+import { MediaSource, isCanvasSource, isVideo, mediaSize } from "./types";
 
 export interface GridDims {
   cols: number;
@@ -202,6 +202,8 @@ export async function loadMedia(file: File): Promise<MediaSource> {
 /** Detach a video element previously created by loadMedia, freeing its blob URL. */
 export function disposeMedia(m: MediaSource | null) {
   if (!m) return;
+  // Procedural sources are canvases owned by the SceneHost, which disposes them.
+  if (isCanvasSource(m)) return;
   if (isVideo(m)) {
     try {
       m.pause();

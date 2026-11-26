@@ -2,7 +2,34 @@
 
 ## Current App
 
-Pixelate is a Next.js 14 + React 18 + TypeScript canvas renderer. The app accepts image and video files, renders them through selectable visual modes, and exports PNG, SVG, React component code, video, or favicon `.ico`. A landing page lives at `/`; the editor is at `/app`.
+Pixelate is a Next.js 14 + React 18 + TypeScript canvas renderer. It takes **three
+source kinds** — images, videos, and procedural 3D scenes — renders them through
+selectable visual modes, and exports PNG, SVG, React component code, video, or
+favicon `.ico`. A landing page lives at `/`; the editor is at `/app`.
+
+The procedural engine was ported from the separate `ascii-studio` repo. See
+`AGENTS.md` for the scene-authoring contract.
+
+## Source Layer
+
+- `lib/types.ts` defines `SourceKind = "media" | "scene"`. `MediaSource` is widened to
+  include `HTMLCanvasElement`, which is what makes the integration cheap: every
+  image-space renderer only ever calls `ctx.drawImage(source, …)`, so a scene rendered
+  to a canvas flows through all 39 existing modes unchanged.
+- `engine/SceneHost.ts` drives one scene and exposes its two consumable forms:
+  `raster()` (a shaded WebGL canvas, usable as media) and `cloud()` (the dense sample
+  cloud the depth renderer needs). It owns no animation loop — `useRenderer` schedules
+  frames and passes time in, so the host is a pure function of `(t, params)`.
+- `hooks/useRenderer.ts` calls `resolveSource(time)` at the top of each tick, which
+  advances the scene and publishes `activeSourceRef` + `geometryRef` for that frame.
+- Scenes are byte-identical ports from ascii-studio; do not edit them to fix Pixelate
+  concerns, fix the host instead.
+
+## Render Mode Compatibility
+
+`lib/modes.ts` carries `sources: SourceKind[]` per mode, and the sidebar filters on it.
+Geometry modes (`geometry_ascii`, `shaded`) are scene-only — there is no depth buffer
+for a photograph. Everything else works on all three source kinds.
 
 ## Architecture
 
@@ -79,9 +106,28 @@ Key custom classes:
 | `renderers/effects.ts` | All expanded/generative/live modes |
 | `renderers/color.ts` | Color mode resolution per cell |
 | `components/Sidebar.tsx` | All editor sidebar controls |
+| `components/controls/ParamControl.tsx` | Renders a scene `ParameterDefinition` with Pixelate's own primitives |
 | `components/LandingPage.tsx` | Landing page |
 | `app/globals.css` | All custom CSS |
 | `public/demos/` | Demo `.webm` files for the landing marquee |
+| `engine/types.ts` | `IScene`, `GeometrySampleCloud`, `ParameterDefinition` |
+| `engine/SceneHost.ts` | Drives a scene; yields raster + sample cloud |
+| `engine/SceneRegistry.ts` | Scene list, metadata, `sceneStartState` |
+| `engine/scenes/` | 8 procedural scenes ported from ascii-studio |
+| `renderers/geometryAscii.ts` | Depth-buffered surface-lit ASCII, and shaded blit |
+| `AGENTS.md` | Scene-authoring contract for agents |
+
+## Known Issues
+
+- `BloomingFlowerScene` / `OceanWavesScene` emit `THREE.BufferGeometry.computeBoundingSphere():
+  Computed radius is NaN` for a `PlaneGeometry`. Pre-existing upstream in ascii-studio
+  (the scene files are byte-identical), not introduced by the port. Harmless for the
+  depth path, which never uses WebGL culling.
+- Only 4 of 8 scenes implement `getSampleCloud`; the rest fall back to per-vertex mesh
+  sampling and render sparse in Depth ASCII. `SceneRegistry` flags which, and the
+  sidebar warns.
+- Video export is still real-time `MediaRecorder`, so it is not frame-exact. The scenes
+  are deterministic in `t`, so a frame-by-frame export path is now possible but not built.
 
 ## Ignored Files
 
